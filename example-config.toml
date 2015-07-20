@@ -1,0 +1,13 @@
+listener = "0.0.0.0:443"
+
+server_cert = "keytalk-server.crt"
+server_key = "keytalk-server.key"
+
+[backends.headfirst]
+  subdomain = "headfirst"
+  session_token = "service_ticket"
+  host = "dev-select.headfirst.nl"
+  port = "443"
+  auth_url = "https://dev-select.headfirst.nl/api/v2/user/login"
+  username_key = "username"
+  password_key = "password"

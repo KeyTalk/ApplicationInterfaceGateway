@@ -1,0 +1,13 @@
+bin/
+.DS_Store
+*.crt
+*.csr
+*.key
+*.p12
+*.pem
+certs/
+keys/
+requests/
+serial.txt*
+database.txt*
+config.toml
