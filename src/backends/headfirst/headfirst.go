@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"sync"
 )
 
 const sessionToken = "service_ticket"
@@ -26,10 +25,7 @@ var tlsConfig = &tls.Config{
 }
 
 type Headfirst struct {
-	credentials struct {
-		db map[string]string
-		sync.Mutex
-	}
+	credentials backends.Credentials
 }
 
 func (h *Headfirst) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *http.Request) {
@@ -74,7 +70,7 @@ func (h *Headfirst) authenticate(email string) (string, error) {
 	c.Lock()
 	defer c.Unlock()
 
-	if token, ok := c.db[email]; ok {
+	if token, ok := c.DB[email]; ok {
 		return token, nil
 	}
 
@@ -107,7 +103,7 @@ func (h *Headfirst) authenticate(email string) (string, error) {
 
 		token := authResponse[sessionToken].(string)
 
-		c.db[email] = token
+		c.DB[email] = token
 
 		return token, nil
 	} else {
@@ -125,11 +121,8 @@ func setHeaders(r *http.Request) {
 func init() {
 	backends.Add("headfirst", func() backends.Backend {
 		return &Headfirst{
-			credentials: struct {
-				db map[string]string
-				sync.Mutex
-			}{
-				db: map[string]string{},
+			credentials: backends.Credentials{
+				DB: map[string]string{},
 			},
 		}
 	})

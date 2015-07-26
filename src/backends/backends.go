@@ -20,6 +20,6 @@ func Add(name string, creator Creator) {
 }
 
 type Credentials struct {
-	db map[string]string
+	DB map[string]string
 	sync.Mutex
 }
