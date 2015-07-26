@@ -11,3 +11,4 @@ requests/
 serial.txt*
 database.txt*
 config.toml
+pkg/

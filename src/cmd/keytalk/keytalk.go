@@ -1,6 +1,8 @@
 package main
 
 import (
+	"backends"
+	_ "backends/headfirst"
 	"flag"
 	"log"
 	"proxy"
@@ -22,5 +24,5 @@ func main() {
 		log.Fatal(err)
 	}
 
-	server.Start()
+	server.Start(backends.Backends)
 }
