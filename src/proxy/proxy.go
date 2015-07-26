@@ -5,11 +5,19 @@ import (
 	"bufio"
 	"crypto/tls"
 	"crypto/x509"
-	"fmt"
-	"log"
+	"errors"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"strings"
+
+	logging "github.com/op/go-logging"
+)
+
+var log = logging.MustGetLogger("api")
+
+var (
+	ErrBackendNotFound = errors.New("Backend not found")
 )
 
 type Server struct {
@@ -45,7 +53,7 @@ func (s *Server) Start(bs map[string]backends.Creator) {
 		log.Fatalf("server: listen: %s", err)
 	}
 
-	log.Printf("Keytalk proxy: started\n")
+	log.Info("Keytalk proxy: started\n")
 	s.listenAndServe()
 }
 
@@ -53,10 +61,10 @@ func (s *Server) listenAndServe() {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			log.Printf("server: accept: %s", err)
+			log.Error("server: accept: %s", err)
 			break
 		}
-		log.Printf("server: accepted from %s", conn.RemoteAddr())
+		log.Info("server: accepted from %s", conn.RemoteAddr())
 		go s.handle(conn)
 	}
 }
@@ -66,13 +74,13 @@ func (s *Server) handle(conn net.Conn) {
 
 	tlscon, ok := conn.(*tls.Conn)
 	if !ok {
-		fmt.Println("Could not type assert tls.Conn")
+		log.Error("Could not type assert tls.Conn")
 		return
 	}
 	defer tlscon.Close()
 
 	if err := tlscon.Handshake(); err != nil {
-		log.Printf("server: handshake failed: %s\n", err)
+		log.Error("server: handshake failed: %s\n", err)
 		return
 	}
 
@@ -90,13 +98,29 @@ func (s *Server) handle(conn net.Conn) {
 
 	backend, err := s.fetchBackend(req.Host)
 	if err != nil {
-		fmt.Println("err")
+		log.Error(err.Error())
+
+		resp := &http.Response{
+			Header:     make(http.Header),
+			Request:    req,
+			StatusCode: http.StatusOK,
+		}
+		resp.Header.Set("Content-Type", "Application / json")
+
+		body := "Error"
+
+		resp.Body = ioutil.NopCloser(strings.NewReader(body))
+
+		resp.Write(tlscon)
+		return
 	}
 
 	backend.Handle(tlscon, clientCert, req)
 }
 
 func (s *Server) fetchBackend(host string) (backends.Backend, error) {
-	subdomain := strings.Split(host, ".")[0]
-	return s.Backends[subdomain], nil
+	if backend, ok := s.Backends[host]; ok {
+		return backend, nil
+	}
+	return nil, ErrBackendNotFound
 }

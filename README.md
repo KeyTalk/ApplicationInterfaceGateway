@@ -13,3 +13,6 @@ FOR ALL OPENSSL GENERATION STEPS, MAKE SURE YOU *TYPE IN* THE REQUIRED FIELDS. T
 7. `gb build`
 8. Run with `./bin/keytalk --config <config-file>`
 9. This is important. Request with something like `lvh.me` on the proper subdomain, eg `https://headfirst.lvh.me`
+
+
+openssl s_client -connect 54.72.168.209:443 -showcerts -CAfile ./ca.crt -key ./client.pem -cert client.cert
