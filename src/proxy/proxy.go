@@ -43,7 +43,7 @@ func (s *Server) Start(bs map[string]backends.Creator) {
 
 	config := tls.Config{
 		Certificates:       []tls.Certificate{cert},
-		ClientAuth:         tls.RequireAnyClientCert,
+		ClientAuth:         tls.RequestClientCert,
 		ClientSessionCache: tls.NewLRUClientSessionCache(1024),
 	}
 
@@ -80,8 +80,7 @@ func (s *Server) handle(conn net.Conn) {
 	defer tlscon.Close()
 
 	if err := tlscon.Handshake(); err != nil {
-		log.Error("server: handshake failed: %s\n", err)
-		return
+		log.Error("server: handshake failed: %s. Continuing anonymously.\n", err.Error())
 	}
 
 	var clientCert *x509.Certificate = nil

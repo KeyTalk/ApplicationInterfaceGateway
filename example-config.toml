@@ -1,7 +1,4 @@
 listener = "0.0.0.0:443"
 
-server_cert = "certs/IP:54.72.168.209.crt"
-server_key = "IP:54.72.168.209.key"
-
-#server_cert = "keytalk-server.crt"
-#server_key = "keytalk-server.key"
+server_cert = "keytalk-server.crt"
+server_key = "keytalk-server.key"

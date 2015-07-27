@@ -29,11 +29,12 @@ type Headfirst struct {
 }
 
 func (h *Headfirst) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *http.Request) {
-	email := clientCert.Subject.CommonName
+	var email string
 	var token string
 	var err error
 
 	if clientCert != nil {
+		email = clientCert.Subject.CommonName
 		token, err = h.authenticate(email)
 		if err != nil {
 			fmt.Println(err)
@@ -51,8 +52,10 @@ func (h *Headfirst) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *
 		return
 	}
 
-	req.Header.Set("Cookie", "TGT=%7B%22ticket_granting_ticket%22%3Anull%2C%22username%22%3A%22anonymous%2B28375%40headfirstselect.nl%22%7D; _iqnomyvid=2379422251; _iqnomyfid=57; AWSELB=7557A7131E7486D92AD42C94AF245454D3B6A4D043CA9D594E96F64853509E2C57E1054A8F21FFE2191481871F2B0914BB31987EE5FE7468A1575FC8B2299A4081EA6BA119; _gat=1; __utmt=1; __utma=235694494.1113251712.1427145564.1434468736.1434479534.12; __utmb=235694494.1.10.1434479534; __utmc=235694494; __utmz=235694494.1430478279.6.4.utmcsr=172.16.2.225|utmccn=(referral)|utmcmd=referral|utmcct=/; JSESSIONID=1E0B536E5841B859F35AF528461CA64C; _ga=GA1.2.1113251712.1427145564; XSRF-TOKEN="+token)
-	req.Header.Set("X-XSRF-TOKEN", token)
+	if token != "" {
+		req.Header.Set("Cookie", "TGT=%7B%22ticket_granting_ticket%22%3Anull%2C%22username%22%3A%22anonymous%2B28375%40headfirstselect.nl%22%7D; _iqnomyvid=2379422251; _iqnomyfid=57; AWSELB=7557A7131E7486D92AD42C94AF245454D3B6A4D043CA9D594E96F64853509E2C57E1054A8F21FFE2191481871F2B0914BB31987EE5FE7468A1575FC8B2299A4081EA6BA119; _gat=1; __utmt=1; __utma=235694494.1113251712.1427145564.1434468736.1434479534.12; __utmb=235694494.1.10.1434479534; __utmc=235694494; __utmz=235694494.1430478279.6.4.utmcsr=172.16.2.225|utmccn=(referral)|utmcmd=referral|utmcct=/; JSESSIONID=1E0B536E5841B859F35AF528461CA64C; _ga=GA1.2.1113251712.1427145564; XSRF-TOKEN="+token)
+		req.Header.Set("X-XSRF-TOKEN", token)
+	}
 	req.Write(outconn)
 
 	r := bufio.NewReader(outconn)
@@ -119,7 +122,7 @@ func setHeaders(r *http.Request) {
 }
 
 func init() {
-	backends.Add("54.72.168.209", func() backends.Backend {
+	backends.Add("headfirst.lvh.me", func() backends.Backend {
 		return &Headfirst{
 			credentials: backends.Credentials{
 				DB: map[string]string{},
