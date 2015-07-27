@@ -8,9 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
-	"net/http/httputil"
 	"net/url"
-	"strings"
 	"sync"
 
 	"golang.org/x/net/publicsuffix"
@@ -43,7 +41,6 @@ func (s *SugarCRM) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *h
 
 	req2 := req
 
-	s.Lock()
 	if clientCert != nil {
 		email = clientCert.Subject.CommonName
 		_, err = s.authenticate(email)
@@ -52,16 +49,23 @@ func (s *SugarCRM) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *h
 			return
 		}
 	}
-	s.Unlock()
 
 	req2.Host = host
-	req2.Header.Set("Connection", "close")
 	req2.RequestURI = ""
 	req2.URL.Scheme = "http"
 	req2.URL.Host = host
 
-	reqDump, err := httputil.DumpRequest(req2, false)
-	fmt.Println(string(reqDump))
+	req2.URL.RawQuery = req2.URL.Query().Encode()
+	v := url.Values{}
+	v.Add("module", "Opportunities")
+	v.Add("action", "index")
+	req2.URL.RawQuery = v.Encode()
+
+	fmt.Println(req2.URL.RawQuery)
+
+	req2.Form = v
+	req2.PostForm = v
+
 	resp2, err2 := client.Do(req2)
 
 	if err2 != nil {
@@ -75,7 +79,6 @@ func (s *SugarCRM) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *h
 func (s *SugarCRM) authenticate(email string) (string, error) {
 	s.credentials.Lock()
 	defer s.credentials.Unlock()
-	fmt.Println("SESSION TOKEN: " + email)
 
 	if token, ok := s.credentials.DB[email]; ok {
 		return *token, nil
@@ -89,22 +92,9 @@ func (s *SugarCRM) authenticate(email string) (string, error) {
 	v.Add(passwordKey, "opacus")
 
 	resp2, _ := client.PostForm(authUrl, v)
-	dump, _ := httputil.DumpResponse(resp2, false)
-	dumpStr := string(dump)
-	fmt.Println(dumpStr)
-	// if err2 != nil {
-	// 	if err2 != ErrRedirect {
-	// 		return "", err2
-	// 	}
-	// }
-	fmt.Println(resp2)
-	if resp2.StatusCode == 200 {
-		header := resp2.Header["Set-Cookie"][1]
-		token := strings.Split(strings.Split(header, ";")[0], "=")[1]
-		fmt.Println(token)
-		s.credentials.DB[email] = &token
 
-		return token, nil
+	if resp2.StatusCode == 200 {
+		return "", nil
 	} else {
 		return "", errors.New("Authorization failure")
 	}
