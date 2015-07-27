@@ -85,7 +85,9 @@ func (s *Server) handle(conn net.Conn) {
 
 	var clientCert *x509.Certificate = nil
 	for _, v := range tlscon.ConnectionState().PeerCertificates {
-		clientCert = v
+		if !v.IsCA {
+			clientCert = v
+		}
 	}
 
 	// get request params

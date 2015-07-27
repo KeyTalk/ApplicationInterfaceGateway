@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 const sessionToken = "PHPSESSID"
@@ -25,6 +26,7 @@ var tlsConfig = &tls.Config{
 
 type SugarCRM struct {
 	credentials backends.Credentials
+	sync.Mutex
 }
 
 func (s *SugarCRM) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *http.Request) {
@@ -32,6 +34,7 @@ func (s *SugarCRM) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *h
 	var token string
 	var err error
 
+	s.Lock()
 	if clientCert != nil {
 		email = clientCert.Subject.CommonName
 		token, err = s.authenticate(email)
@@ -40,6 +43,7 @@ func (s *SugarCRM) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *h
 			return
 		}
 	}
+	s.Unlock()
 
 	req.Host = host
 	req.Header.Set("Connection", "close")
@@ -68,6 +72,7 @@ func (s *SugarCRM) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *h
 func (s *SugarCRM) authenticate(email string) (string, error) {
 	s.credentials.Lock()
 	defer s.credentials.Unlock()
+	fmt.Println("SESSION TOKEN: " + email)
 
 	if token, ok := s.credentials.DB[email]; ok {
 		return *token, nil
@@ -80,9 +85,6 @@ func (s *SugarCRM) authenticate(email string) (string, error) {
 	v.Add(usernameKey, email)
 	v.Add(passwordKey, "opacus")
 
-	fmt.Println(v)
-
-	fmt.Println("posting")
 	resp2, err2 := http.PostForm(authUrl, v)
 
 	if err2 != nil {
