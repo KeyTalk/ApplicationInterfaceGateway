@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httputil"
 	"net/url"
 	"sync"
 
@@ -39,8 +40,6 @@ func (s *SugarCRM) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *h
 	var email string
 	var err error
 
-	req2 := req
-
 	if clientCert != nil {
 		email = clientCert.Subject.CommonName
 		_, err = s.authenticate(email)
@@ -50,21 +49,23 @@ func (s *SugarCRM) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *h
 		}
 	}
 
-	req2.Host = host
-	req2.RequestURI = ""
-	req2.URL.Scheme = "http"
-	req2.URL.Host = host
-
-	req2.URL.RawQuery = req2.URL.Query().Encode()
-	v := url.Values{}
-	v.Add("module", "Opportunities")
-	v.Add("action", "index")
-	req2.URL.RawQuery = v.Encode()
-
-	fmt.Println(req2.URL.RawQuery)
-
-	req2.Form = v
-	req2.PostForm = v
+	req2 := &http.Request{
+		Host: host,
+		URL: &url.URL{
+			Scheme:   "http",
+			Path:     req.URL.Path,
+			Host:     host,
+			RawQuery: req.URL.Query().Encode(),
+		},
+		Close:  true,
+		Header: req.Header,
+	}
+	for _, cookie := range client.Jar.Cookies(req2.URL) {
+		req2.AddCookie(cookie)
+	}
+	dump, err := httputil.DumpRequest(req2, true)
+	fmt.Println(string(dump))
+	fmt.Println(client.Jar.Cookies(req2.URL))
 
 	resp2, err2 := client.Do(req2)
 
