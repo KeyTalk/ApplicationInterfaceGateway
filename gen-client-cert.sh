@@ -1,7 +1,7 @@
 #!/bin/bash
 
 PASSWORD="password!"
-NAME="anonymous+28375@headfirstselect.nl"
+NAME="demo"
 
 # Make the config Client specific
 cat openssl.conf > use.conf

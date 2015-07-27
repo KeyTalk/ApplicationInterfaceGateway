@@ -74,7 +74,7 @@ func (h *Headfirst) authenticate(email string) (string, error) {
 	defer c.Unlock()
 
 	if token, ok := c.DB[email]; ok {
-		return token, nil
+		return *token, nil
 	}
 
 	buffer := new(bytes.Buffer)
@@ -106,7 +106,7 @@ func (h *Headfirst) authenticate(email string) (string, error) {
 
 		token := authResponse[sessionToken].(string)
 
-		c.DB[email] = token
+		c.DB[email] = &token
 
 		return token, nil
 	} else {
@@ -125,7 +125,7 @@ func init() {
 	backends.Add("headfirst.lvh.me", func() backends.Backend {
 		return &Headfirst{
 			credentials: backends.Credentials{
-				DB: map[string]string{},
+				DB: map[string]*string{},
 			},
 		}
 	})

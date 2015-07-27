@@ -3,6 +3,7 @@ package main
 import (
 	"backends"
 	_ "backends/headfirst"
+	_ "backends/sugarcrm"
 	"flag"
 	"log"
 	"os"

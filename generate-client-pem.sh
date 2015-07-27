@@ -1,5 +1,5 @@
 #!/bin/bash
 
-NAME="anonymous+28375@headfirstselect.nl"
+NAME="demo"
 
-openssl pkcs12 -export -clcerts -in certs/$NAME.crt -inkey $NAME.key -out client.p12
+openssl pkcs12 -export -clcerts -in certs/$NAME.crt -inkey $NAME.key -out $NAME-client.p12
