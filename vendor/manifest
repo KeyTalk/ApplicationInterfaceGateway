@@ -6,6 +6,13 @@
 			"repository": "https://github.com/BurntSushi/toml",
 			"revision": "056c9bc7be7190eaa7715723883caffa5f8fa3e4",
 			"branch": "master"
+		},
+		{
+			"importpath": "golang.org/x/net/publicsuffix",
+			"repository": "https://go.googlesource.com/net",
+			"revision": "b71143c25f0aad5f54981684b715686d34c56d25",
+			"branch": "master",
+			"path": "/publicsuffix"
 		}
 	]
 }
