@@ -16,3 +16,13 @@ FOR ALL OPENSSL GENERATION STEPS, MAKE SURE YOU *TYPE IN* THE REQUIRED FIELDS. T
 
 
 openssl s_client -connect 54.72.168.209:443 -showcerts -CAfile ./ca.crt -key ./client.pem -cert client.cert
+
+
+
+Use etcd for token store?
+
+https://github.com/coreos/go-etcd
+
+Use keep-alive support:
+
+http://stackoverflow.com/questions/17948827/reusing-http-connections-in-golang

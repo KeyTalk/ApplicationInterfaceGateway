@@ -5,14 +5,16 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+
+	"github.com/op/go-logging"
 )
+
+var log = logging.MustGetLogger("headfirst")
 
 const sessionToken = "service_ticket"
 const host = "dev-select.headfirst.nl:443"
@@ -28,50 +30,51 @@ type Headfirst struct {
 	credentials backends.Credentials
 }
 
-func (h *Headfirst) Handle(tlscon *tls.Conn, clientCert *x509.Certificate, req *http.Request) {
-	var email string
-	var token string
-	var err error
+// Dial
+// Authorize
+// HeadfirstSession
+// maybe have a http(s) base handler
 
-	if clientCert != nil {
-		email = clientCert.Subject.CommonName
-		token, err = h.authenticate(email)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	}
-
-	req.Host = host
-	req.Header.Set("Connection", "close")
-
-	outconn, err := tls.Dial("tcp", host, tlsConfig)
-	defer outconn.Close()
-	if err != nil {
-		fmt.Println("failed to connect: " + err.Error())
-		return
-	}
-
-	if token != "" {
-		req.Header.Set("Cookie", "TGT=%7B%22ticket_granting_ticket%22%3Anull%2C%22username%22%3A%22anonymous%2B28375%40headfirstselect.nl%22%7D; _iqnomyvid=2379422251; _iqnomyfid=57; AWSELB=7557A7131E7486D92AD42C94AF245454D3B6A4D043CA9D594E96F64853509E2C57E1054A8F21FFE2191481871F2B0914BB31987EE5FE7468A1575FC8B2299A4081EA6BA119; _gat=1; __utmt=1; __utma=235694494.1113251712.1427145564.1434468736.1434479534.12; __utmb=235694494.1.10.1434479534; __utmc=235694494; __utmz=235694494.1430478279.6.4.utmcsr=172.16.2.225|utmccn=(referral)|utmcmd=referral|utmcct=/; JSESSIONID=1E0B536E5841B859F35AF528461CA64C; _ga=GA1.2.1113251712.1427145564; XSRF-TOKEN="+token)
-		req.Header.Set("X-XSRF-TOKEN", token)
-	}
-	req.Write(outconn)
-
-	r := bufio.NewReader(outconn)
-	resp, err := http.ReadResponse(r, req)
-	if resp == nil {
-		return
-	}
-
-	resp.Write(tlscon)
+type BackendConn struct {
+	net.Conn
 }
 
-func (h *Headfirst) authenticate(email string) (string, error) {
+func (h *Headfirst) Dial() (net.Conn, error) {
+	return tls.Dial("tcp", host, tlsConfig)
+}
+
+func (h *Headfirst) Handle(token string, outconn net.Conn, req *http.Request) (*http.Response, error) {
+	var err error
+	req.Host = host
+
+	if token != "" {
+		if _, err := req.Cookie("XSRF-TOKEN"); err == http.ErrNoCookie {
+			req.AddCookie(&http.Cookie{Name: "XSRF-TOKEN", Value: token})
+		}
+
+		req.Header.Set("X-XSRF-TOKEN", token)
+	} else {
+		log.Debug("No token found, using anonymous.")
+	}
+
+	if err = req.Write(outconn); err != nil {
+		return nil, err
+	}
+
+	r := bufio.NewReader(outconn)
+
+	resp, err := http.ReadResponse(r, req)
+	// TODO: remove XSRF-TOKEN cookie from response
+	return resp, err
+}
+
+func (h *Headfirst) Authenticate(email string) (string, error) {
 	c := h.credentials
 
 	c.Lock()
 	defer c.Unlock()
+
+	email = "zp"
 
 	if token, ok := c.DB[email]; ok {
 		return *token, nil
@@ -84,7 +87,6 @@ func (h *Headfirst) authenticate(email string) (string, error) {
 	})
 
 	req2, err2 := http.NewRequest("POST", authUrl, buffer)
-
 	if err2 != nil {
 		return "", err2
 	}
@@ -92,7 +94,6 @@ func (h *Headfirst) authenticate(email string) (string, error) {
 	setHeaders(req2)
 
 	resp2, err2 := http.DefaultClient.Do(req2)
-
 	if err2 != nil {
 		return "", err2
 	}
@@ -110,7 +111,7 @@ func (h *Headfirst) authenticate(email string) (string, error) {
 
 		return token, nil
 	} else {
-		return "", errors.New("Authorization failure")
+		return "", backends.ErrAuthorizationFailed
 	}
 }
 
@@ -122,7 +123,10 @@ func setHeaders(r *http.Request) {
 }
 
 func init() {
-	backends.Add("headfirst.lvh.me", func() backends.Backend {
+	backends.Add([]string{
+		"headfirst-select.lvh.me",
+		"headfirst-select.devkeytalk.com",
+	}, func() backends.Backend {
 		return &Headfirst{
 			credentials: backends.Credentials{
 				DB: map[string]*string{},

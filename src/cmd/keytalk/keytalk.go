@@ -3,7 +3,7 @@ package main
 import (
 	"backends"
 	_ "backends/headfirst"
-	_ "backends/sugarcrm"
+	// _ "backends/sugarcrm"
 	"flag"
 	"log"
 	"os"
@@ -38,10 +38,20 @@ func main() {
 	backend1 := logging.NewLogBackend(os.Stdout, "", 0)
 	backend1Leveled := logging.AddModuleLevel(backend1)
 	backend1Leveled.SetLevel(logging.DEBUG, "")
-
 	backend1Formatter := logging.NewBackendFormatter(backend1, format)
 
-	logging.SetBackend(backend1Formatter)
+	w, err := os.OpenFile("logs/log.txt", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		panic(err)
+	}
+
+	backend2 := logging.NewLogBackend(w, "", 0)
+	backend2Leveled := logging.AddModuleLevel(backend2)
+	backend2Leveled.SetLevel(logging.DEBUG, "")
+
+	backend2Formatter := logging.NewBackendFormatter(backend2, format)
+
+	logging.SetBackend(backend1Formatter, backend2Formatter)
 
 	server.Start(backends.Backends)
 }
