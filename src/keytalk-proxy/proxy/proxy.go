@@ -3,7 +3,6 @@ package proxy
 import (
 	"bufio"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -49,6 +48,7 @@ func (d *ClientAuthType) UnmarshalTOML(data []byte) error {
 
 type Server struct {
 	ListenerString        string `toml:"listener"`
+	TLSListenerString     string `toml:"tlslistener"`
 	CACertificateFile     string `toml:"ca_cert"`
 	ServerCertificateFile string `toml:"server_cert"`
 	ServerKeyFile         string `toml:"server_key"`
@@ -64,40 +64,12 @@ func (s *Server) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certific
 }
 
 func (s *Server) Start(bs map[string]backends.Creator) {
-
 	s.Backends = map[string]backends.Backend{}
 	for k, v := range bs {
 		s.Backends[k] = v()
 	}
 
-	/*
-		var err error
-		if s.cert, err = tls.LoadX509KeyPair(s.ServerCertificateFile, s.ServerKeyFile); err != nil {
-			log.Fatalf("server: loadkeys: %s", err)
-		}
-		caBytes, err := ioutil.ReadFile(s.CACertificateFile)
-		if err != nil {
-			log.Fatalf("could not load ca file %s: %s", s.CACertificateFile, err)
-		}
-
-		caPool := x509.NewCertPool()
-		if ok := caPool.AppendCertsFromPEM(caBytes); !ok {
-			log.Fatalf("could not parse ca file %s", s.CACertificateFile)
-		}
-
-		// workaround to enum registered CA's, certs in certpool are private
-		caPoolCustom := NewCertPool()
-		if ok := caPoolCustom.AppendCertsFromPEM(caBytes); !ok {
-			log.Fatalf("could not parse ca file %s", s.CACertificateFile)
-		}
-
-		for _, cert := range caPoolCustom.Certs() {
-			log.Info("Loaded CA: %s", cert.Subject.CommonName)
-		}
-
-	*/
-	startRedirector()
-
+	s.startRedirector()
 	s.startEtcd()
 
 	var err error
@@ -112,9 +84,18 @@ func (s *Server) Start(bs map[string]backends.Creator) {
 		log.Fatal(err)
 	}
 
-	listener, err := openssl.Listen("tcp4", s.ListenerString, ctx)
+	ctx.SetSessionCacheMode(openssl.SessionCacheServer)
 
-	//listener, err := tls.Listen("tcp4", s.ListenerString, &config)
+	ctx.SetSessionId([]byte{1})
+	ctx.SetVerifyMode(openssl.VerifyPeer | openssl.VerifyFailIfNoPeerCert)
+	/*
+		ctx.SetVerify(openssl.VerifyPeer|openssl.VerifyFailIfNoPeerCert, func(ok bool, store *openssl.CertificateStoreCtx) bool {
+			fmt.Printf("Verify certificate: %#v", *store)
+			return true
+		})
+	*/
+
+	listener, err := openssl.Listen("tcp4", s.TLSListenerString, ctx)
 	s.listener = listener
 	if err != nil {
 		log.Fatalf("server: listen: %s", err)
@@ -132,10 +113,10 @@ func RedirectHandler() http.HandlerFunc {
 	}
 }
 
-func startRedirector() {
+func (s *Server) startRedirector() {
 	go func() {
 		s := &http.Server{
-			Addr:    fmt.Sprintf(":%s", "8081"),
+			Addr:    s.ListenerString,
 			Handler: RedirectHandler(),
 		}
 
@@ -198,9 +179,10 @@ func (s *Server) handle(conn net.Conn) {
 
 		resp.Header.Set("Server", "Keytalk Authentication Proxy")
 
-		body := err.Error()
+		body := fmt.Sprintf("Keytalk proxy error: %s", err.Error())
 
-		resp.Body = ioutil.NopCloser(strings.NewReader(body))
+		r := strings.NewReader(body)
+		resp.Body = ioutil.NopCloser(r)
 
 		resp.Write(tlscon)
 	}()
@@ -210,18 +192,13 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	} else if err != nil {
 		log.Error("server: handshake failed: %s. Continuing anonymously.\n", err.Error())
+		return
 	}
 
-	var clientCert *x509.Certificate = nil
-	/*
-		for _, v := range tlscon.ConnectionState().PeerCertificates {
-			if v.IsCA {
-				continue
-			}
+	cert, err := tlscon.PeerCertificate()
+	if err != nil {
 
-			clientCert = v
-		}
-	*/
+	}
 
 	req, err = http.ReadRequest(reader)
 	if err != nil {
@@ -241,16 +218,34 @@ func (s *Server) handle(conn net.Conn) {
 	}
 
 	token := ""
-	subject := ""
-	if clientCert != nil || true {
-		subject = "test"
+	commonName := ""
+	if cert != nil {
+
 		// subject = clientCert.Subject.CommonName
-		if token, err = backend.Authenticate(subject); err != nil {
+		subject, err := cert.GetSubjectName()
+		if err != nil {
+
+		}
+
+		fmt.Printf("%#v, %#v", subject, err)
+
+		if s, ok := subject.GetEntry(openssl.NID_commonName); ok {
+			//		fmt.Println("Commonname", s)
+			commonName = s
+		}
+
+		if token, err = backend.Authenticate(commonName); err != nil {
 			return
 		}
 	}
 
-	clientconn, err := backend.Dial()
+	clientconn, err := backend.Dial(commonName)
+	if err != nil {
+		//net.HttpResponseWriter(clientconn)
+		//http.Error(clientconn, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
 	defer clientconn.Close()
 
 	for {
@@ -270,7 +265,7 @@ func (s *Server) handle(conn net.Conn) {
 			return
 		}
 
-		log.Info("%s %s %s %d %s %s", req.Host, req.URL.String(), req.Header.Get("Content-Type"), resp.StatusCode, subject, req.Header.Get("Referer"))
+		log.Info("%s %s %s %d %s %s", req.Host, req.URL.String(), req.Header.Get("Content-Type"), resp.StatusCode, commonName, req.Header.Get("Referer"))
 		// TODO: add apache compatible format
 
 		// for keep alive, next request

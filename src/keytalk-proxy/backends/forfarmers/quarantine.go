@@ -41,7 +41,7 @@ type BackendConn struct {
 	net.Conn
 }
 
-func (h *Quarantine) Dial() (net.Conn, error) {
+func (h *Quarantine) Dial(email string) (net.Conn, error) {
 	return tls.Dial("tcp", host, tlsConfig)
 }
 

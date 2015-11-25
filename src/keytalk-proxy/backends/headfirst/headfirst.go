@@ -39,7 +39,7 @@ type BackendConn struct {
 	net.Conn
 }
 
-func (h *Headfirst) Dial() (net.Conn, error) {
+func (h *Headfirst) Dial(email string) (net.Conn, error) {
 	return tls.Dial("tcp", host, tlsConfig)
 }
 
