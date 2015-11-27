@@ -3,6 +3,8 @@ package proxy
 import (
 	"bufio"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -68,6 +70,140 @@ func (s *Server) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certific
 }
 
 func (s *Server) Start(bs map[string]backends.Creator) {
+	cema, err := forfarmers.NewCertificateManager()
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+
+	derBytes, priv, err := cema.Generate("innotest")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	cert := &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}
+	certstr := pem.EncodeToMemory(cert)
+
+	key := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}
+	keystr := pem.EncodeToMemory(key)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(string(certstr))
+	fmt.Println(string(keystr))
+	/*
+		// b, _ := asn1.Marshal(asn1.RawValue{Tag: 0, Class: 2, Bytes: []byte("innotest, email:innotest@forfarmers.eu")})
+		b, _ := asn1.Marshal(asn1.RawValue{Tag: 0, Class: 2, Bytes: []byte("msUPN;UTF8:innotest, email:innotest@forfarmers.eu")})
+
+		fmt.Printf("%x\n", b)
+
+		rest := []byte{0x30, 0x43, 0xa0, 0x29, 0x06, 0x0a, 0x2b, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x14, 0x02, 0x03, 0xa0, 0x1b, 0x0c, 0x19, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x46, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x81, 0x16, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x66, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x65, 0x75}
+
+		bla2, err := marshalSANs([]otherName{otherName{Method: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 20, 2, 3}, Location: asn1.RawValue{Tag: 0, Class: 2, Bytes: []byte("innotest@Forfarmers.local")}}}, []string{}, []string{"innotest@forfarmers.eu"}, []net.IP{})
+		fmt.Printf("Marshalled %x %#v\n", bla2, err)
+
+		var v asn1.RawValue
+		//var err error
+		rest, err = asn1.Unmarshal(rest, &v)
+
+		rest = v.Bytes
+		// rest := []byte{0x30, 0x32, 0xa0, 0x18, 0x6, 0xa, 0x2b, 0x6, 0x1, 0x4, 0x1, 0x82, 0x37, 0x14, 0x2, 0x3, 0xa0, 0xa, 0xc, 0x8, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x81, 0x16, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x66, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x65, 0x75}
+		fmt.Printf("Rest %x", rest)
+		for len(rest) > 0 {
+			var v asn1.RawValue
+			// var err error
+			rest, err = asn1.Unmarshal(rest, &v)
+			if err != nil {
+				fmt.Printf("%#v", err.Error())
+				break
+			}
+
+			fmt.Printf("Tag: %d %d %d %#v %s\n\n", v.Tag, v.Class, len(v.Bytes), v.Bytes, string(v.Bytes))
+			// rest = v.Bytes
+
+			switch v.Tag {
+			case 0:
+				rest2 := v.Bytes
+
+				var ID asn1.ObjectIdentifier
+				rest2, _ = asn1.Unmarshal(rest2, &ID)
+				fmt.Printf("REMCO %#v\n\n%#v\n", 0, ID)
+
+				var rv asn1.RawValue
+				rest2, _ = asn1.Unmarshal(rest2, &rv)
+				fmt.Printf("REMCO %#v\n\n%#v\n%s\n", 0, rv, string(rv.Bytes))
+			case 1:
+				fmt.Printf("Email: %s", string(v.Bytes))
+				/*
+						emailAddresses = append(emailAddresses, string(v.Bytes))
+					case 2:
+						dnsNames = append(dnsNames, string(v.Bytes))
+					case 7:
+						switch len(v.Bytes) {
+						case net.IPv4len, net.IPv6len:
+							ipAddresses = append(ipAddresses, v.Bytes)
+						default:
+							err = errors.New("x509: certificate contained IP address of length " + strconv.Itoa(len(v.Bytes)))
+							return
+						}
+					}*
+			}
+
+		}
+		return
+
+		var subjectAltName struct {
+			V asn1.RawValue
+			/*
+				R1 struct {
+				} `asn1,tag:0`
+	*/
+	//MaxPathLen int `asn1:"default:-1"`
+	// ID         asn1.ObjectIdentifier
+	//MaxPathLen1 int `asn1:"default:-1"`
+	//	MaxPathLen2 int `asn1:"default:-1"`
+	//	MaxPathLen3 int `asn1:"default:-1"`
+	// V          asn1.RawValue
+	// X          asn1.RawValue
+	//B []byte `asn1:"set"`
+	/*
+		MaxPathLen  int `asn1:"optional,default:-1"`
+		MaxPathLen1 int `asn1:"optional,default:-1"`
+
+		ID asn1.ObjectIdentifier
+	*/
+	// 	B []byte `asn1:"optional"`
+	/*
+				R1 struct {
+					Value interface{} `asn1:"set"`
+				} `asn1:"optional,tag:1"`
+					Value []byte
+					Raw asn1.RawValue `asn1:"optional,tag:0"`
+
+			*
+		}
+		_ = subjectAltName
+
+		rest2 := []uint8{0x30, 0x43, 0xa0, 0x29, 0x06, 0x0a, 0x2b, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x14, 0x02, 0x03, 0xa0, 0x1b, 0x0c, 0x19, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x46, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x81, 0x16, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x66, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x65, 0x75}
+		rest, x := asn1.Unmarshal(rest2[0:], &subjectAltName)
+		fmt.Printf("REMCOB %#v\n\n%#v\n", x, subjectAltName)
+
+		rest2 = subjectAltName.V.Bytes
+		var ID asn1.ObjectIdentifier
+		var rv asn1.RawValue
+
+		rest, x = asn1.Unmarshal(rest2, &ID)
+		fmt.Printf("REMCO %#v\n\n%#v\n", x, ID)
+
+		rest, x = asn1.Unmarshal(rest, &rv)
+		fmt.Printf("REMCO %#v\n\n%#v\n%s\n", x, rv, string(rv.Bytes))
+
+		rest, x = asn1.Unmarshal(rest, &rv)
+		fmt.Printf("REMCO %#v\n\n%#v\n%s\n", x, rv, string(rv.Bytes))
+		fmt.Printf("Rest %x", rest)
+	*/
+
 	s.Backends = map[string]backends.Backend{}
 	for k, v := range bs {
 		s.Backends[k] = v()
@@ -76,7 +212,7 @@ func (s *Server) Start(bs map[string]backends.Creator) {
 	s.startRedirector()
 	s.startEtcd()
 
-	var err error
+	// var err error
 
 	ctx, err := openssl.NewCtxFromFiles(s.ServerCertificateFile, s.ServerKeyFile)
 	if err != nil {
