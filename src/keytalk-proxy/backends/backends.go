@@ -11,7 +11,7 @@ import (
 var log = logging.MustGetLogger("backend")
 
 type Backend interface {
-	Dial(email string) (net.Conn, error)
+	Dial(email string) func(network, address string) (net.Conn, error)
 	// TODO: should Authenticate return a new session? The session will handle the traffic
 	Authenticate(email string) (string, error)
 	Handle(string, net.Conn, *http.Request) (*http.Response, error)

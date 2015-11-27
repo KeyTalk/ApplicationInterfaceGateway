@@ -9,10 +9,14 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"runtime"
 	"strings"
+	"time"
 
 	"keytalk-proxy/backends"
+	"keytalk-proxy/backends/forfarmers"
 
 	"github.com/spacemonkeygo/openssl"
 
@@ -84,6 +88,10 @@ func (s *Server) Start(bs map[string]backends.Creator) {
 		log.Fatal(err)
 	}
 
+	err = ctx.SetClientCAListFromFile(s.CACertificateFile)
+	if err != nil {
+		log.Fatal(err)
+	}
 	ctx.SetSessionCacheMode(openssl.SessionCacheServer)
 
 	ctx.SetSessionId([]byte{1})
@@ -115,9 +123,30 @@ func RedirectHandler() http.HandlerFunc {
 
 func (s *Server) startRedirector() {
 	go func() {
+		mux := http.NewServeMux()
+
+		mux.HandleFunc("/ca.crl", func(w http.ResponseWriter, r *http.Request) {
+
+			cema, err := forfarmers.NewCertificateManager()
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
+
+			buff, err := cema.GenerateCRL()
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
+
+			fmt.Println(string(buff))
+			w.Write(buff)
+
+		})
+
 		s := &http.Server{
 			Addr:    s.ListenerString,
-			Handler: RedirectHandler(),
+			Handler: mux, // RedirectHandler(mux),
 		}
 
 		log.Fatal(s.ListenAndServe())
@@ -217,7 +246,6 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	token := ""
 	commonName := ""
 	if cert != nil {
 
@@ -234,23 +262,37 @@ func (s *Server) handle(conn net.Conn) {
 			commonName = s
 		}
 
-		if token, err = backend.Authenticate(commonName); err != nil {
+		if _, err = backend.Authenticate(commonName); err != nil {
 			return
 		}
 	}
 
-	clientconn, err := backend.Dial(commonName)
-	if err != nil {
-		//net.HttpResponseWriter(clientconn)
-		//http.Error(clientconn, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
+	var t http.RoundTripper = &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		Dial:                backend.Dial(commonName),
+		DialTLS:             backend.Dial(commonName),
+		TLSHandshakeTimeout: 10 * time.Second,
 	}
 
-	defer clientconn.Close()
-
 	for {
+		dump, _ := httputil.DumpRequest(req, false)
+		fmt.Printf("Request: %s\n", string(dump))
+
+		// req.Host = "tconnect.forfarmers.eu"
+		fmt.Printf("%#v\n", req.URL.String())
+
+		req.URL = &url.URL{
+			Scheme:   "https",
+			Host:     req.Host,
+			Path:     req.URL.Path,
+			RawQuery: req.URL.RawQuery,
+			Fragment: req.URL.Fragment,
+		}
+		fmt.Printf("%#v\n", req.URL.String())
+
 		var resp *http.Response
-		if resp, err = backend.Handle(token, clientconn, req); err != nil {
+		if resp, err = t.RoundTrip(req); err != nil {
+			//if resp, err = backend.Handle(token, clientconn, req); err != nil {
 			return
 		}
 
@@ -260,6 +302,9 @@ func (s *Server) handle(conn net.Conn) {
 		case 403:
 			// TODO: try to sign in again
 		}
+
+		dump, _ = httputil.DumpResponse(resp, false)
+		log.Debug("Response: %s\n", string(dump))
 
 		if err = resp.Write(tlscon); err != nil {
 			return

@@ -115,6 +115,24 @@ func (cm *CertificateManager) loadCA() error {
 	return nil
 }
 
+func (cm *CertificateManager) GenerateCRL() ([]byte, error) {
+	if err := cm.loadCA(); err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	expiry := now.AddDate(0, 1, 0)
+	derBytes, err := cm.ca.Certificate.CreateCRL(rand.Reader, cm.ca.PrivateKey, []pkix.RevokedCertificate{}, now, expiry)
+	if err != nil {
+		return nil, err
+	}
+
+	crl := &pem.Block{Type: "X509 CRL", Bytes: derBytes}
+
+	certstr := pem.EncodeToMemory(crl)
+	return certstr, nil
+}
+
 func (cm *CertificateManager) Generate(email string) ([]byte, *rsa.PrivateKey, error) {
 	if err := cm.loadCA(); err != nil {
 		return nil, nil, err
@@ -137,8 +155,9 @@ func (cm *CertificateManager) Generate(email string) ([]byte, *rsa.PrivateKey, e
 		PublicKeyAlgorithm: x509.RSA,
 		SignatureAlgorithm: x509.SHA1WithRSA,
 
-		KeyUsage:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
 		Subject: pkix.Name{
 			ExtraNames: []pkix.AttributeTypeAndValue{
 				pkix.AttributeTypeAndValue{Type: asn1.ObjectIdentifier{0, 9, 2342, 19200300, 100, 1, 25}, Value: "local"},
@@ -151,6 +170,7 @@ func (cm *CertificateManager) Generate(email string) ([]byte, *rsa.PrivateKey, e
 			},
 		},
 		ExtraExtensions: []pkix.Extension{
+		/*
 			pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 15}, Critical: true, Value: []uint8{0x3, 0x2, 0x5, 0xe0}},
 			pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 37}, Critical: true, Value: []uint8{0x30, 0x20, 0x6, 0x8, 0x2b, 0x6, 0x1, 0x5, 0x5, 0x7, 0x3, 0x2, 0x6, 0x8, 0x2b, 0x6, 0x1, 0x5, 0x5, 0x7, 0x3, 0x4, 0x6, 0xa, 0x2b, 0x6, 0x1, 0x4, 0x1, 0x82, 0x37, 0x14, 0x2, 0x2}},
 			pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 19}, Critical: false, Value: []uint8{0x30, 0x0}},
@@ -158,7 +178,12 @@ func (cm *CertificateManager) Generate(email string) ([]byte, *rsa.PrivateKey, e
 			pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 31}, Critical: false, Value: []uint8{0x30, 0x28, 0x30, 0x26, 0xa0, 0x24, 0xa0, 0x22, 0x86, 0x20, 0x68, 0x74, 0x74, 0x70, 0x3a, 0x2f, 0x2f, 0x31, 0x39, 0x32, 0x2e, 0x31, 0x36, 0x38, 0x2e, 0x31, 0x30, 0x32, 0x2e, 0x31, 0x35, 0x32, 0x3a, 0x38, 0x31, 0x2f, 0x63, 0x61, 0x2e, 0x63, 0x72, 0x6c}},
 			pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 14}, Critical: false, Value: []uint8{0x4, 0x14, 0x89, 0x4f, 0x62, 0xc4, 0x3e, 0x92, 0x3, 0x2, 0x7b, 0xff, 0x96, 0x92, 0xf4, 0x5b, 0xfc, 0x8f, 0xbc, 0x89, 0x4c, 0xa4}},
 			pkix.Extension{Id: asn1.ObjectIdentifier{2, 5, 29, 17}, Critical: false, Value: []uint8{0x30, 0x32, 0xa0, 0x18, 0x6, 0xa, 0x2b, 0x6, 0x1, 0x4, 0x1, 0x82, 0x37, 0x14, 0x2, 0x3, 0xa0, 0xa, 0xc, 0x8, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x81, 0x16, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x66, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x65, 0x75}},
+		*/
 		},
+		UnknownExtKeyUsage: []asn1.ObjectIdentifier{
+			asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 20, 2, 2},
+		},
+		CRLDistributionPoints: []string{"http://192.168.102.152/ca.crl"},
 	}
 
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -179,15 +204,17 @@ func NewCertificateManager() (*CertificateManager, error) {
 	return &CertificateManager{}, nil
 }
 
-func (h *Connect) Dial(email string) (net.Conn, error) {
+func (h *Connect) Dial(email string) func(network, address string) (net.Conn, error) {
 	cema, err := NewCertificateManager()
 	if err != nil {
-		return nil, err
+		fmt.Println(err.Error())
+		return nil
 	}
 
 	cm, err := NewCacheManager()
 	if err != nil {
-		return nil, err
+		fmt.Println(err.Error())
+		return nil
 	}
 
 	certstr, _ := cm.GetBytes(fmt.Sprintf("connect.forfarmers.eu:%s:cert", email))
@@ -197,13 +224,15 @@ func (h *Connect) Dial(email string) (net.Conn, error) {
 	if len(keystr) == 0 {
 		derBytes, priv, err := cema.Generate(email)
 		if err != nil {
-			return nil, err
+			fmt.Println(err.Error())
+			return nil
 		}
 
 		cert := &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}
 		certstr = pem.EncodeToMemory(cert)
 		if err := cm.Set(fmt.Sprintf("connect.forfarmers.eu:%s:cert", email), cert); err != nil {
 			fmt.Println(err.Error())
+			return nil
 		}
 
 		key := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}
@@ -213,44 +242,59 @@ func (h *Connect) Dial(email string) (net.Conn, error) {
 		}
 	}
 
-	ctx, err := openssl.NewCtx()
-	if err != nil {
-		log.Error("Error creating openssl ctx: %s", err.Error())
-		return nil, err
+	fmt.Printf("email %s\n%s\n%s\n", email, keystr, certstr)
+
+	return func(network, address string) (net.Conn, error) {
+
+		fmt.Printf("Dialing %s %s\n", network, address)
+
+		ctx, err := openssl.NewCtx()
+		if err != nil {
+			log.Error("Error creating openssl ctx: %s", err.Error())
+			return nil, err
+		}
+
+		cert99, err := openssl.LoadCertificateFromPEM(certstr)
+		if err != nil {
+			log.Error("Error creating openssl ctx: %s", err.Error())
+			return nil, err
+		}
+
+		ctx.UseCertificate(cert99)
+
+		pk99, err := openssl.LoadPrivateKeyFromPEM(keystr)
+		if err != nil {
+			log.Error("Error creating openssl ctx: %s", err.Error())
+			return nil, err
+		}
+
+		ctx.UsePrivateKey(pk99)
+
+		ctx.SetVerifyMode(openssl.VerifyNone)
+
+		//conn, err := openssl.Dial("tcp", "127.0.0.1:8443", ctx, openssl.InsecureSkipHostVerification)
+		conn, err := openssl.Dial("tcp", "172.20.0.133:443", ctx, openssl.InsecureSkipHostVerification)
+		if err != nil {
+			log.Error("Error dialing: %s", err.Error())
+			return nil, err
+		}
+
+		host, _, err := net.SplitHostPort(address)
+
+		if err = conn.SetTlsExtHostName(host); err != nil {
+			log.Error("Error set tls ext host: %s", err.Error())
+			return nil, err
+		}
+
+		conn.SetDeadline(time.Now().Add(time.Minute * 10))
+
+		err = conn.Handshake()
+		if err != nil {
+			log.Error("Error handshake: %s", err.Error())
+			return nil, err
+		}
+		return conn, err
 	}
-
-	cert99, err := openssl.LoadCertificateFromPEM(certstr)
-	if err != nil {
-		log.Error("Error creating openssl ctx: %s", err.Error())
-		return nil, err
-	}
-
-	ctx.UseCertificate(cert99)
-
-	pk99, err := openssl.LoadPrivateKeyFromPEM(keystr)
-	if err != nil {
-		log.Error("Error creating openssl ctx: %s", err.Error())
-		return nil, err
-	}
-
-	ctx.UsePrivateKey(pk99)
-
-	ctx.SetVerifyMode(openssl.VerifyNone)
-
-	//conn, err := openssl.Dial("tcp", "127.0.0.1:8443", ctx, openssl.InsecureSkipHostVerification)
-	conn, err := openssl.Dial("tcp", "172.20.0.133:443", ctx, openssl.InsecureSkipHostVerification)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = conn.SetTlsExtHostName("tconnect.forfarmers.eu"); err != nil {
-		return nil, err
-	}
-
-	conn.SetDeadline(time.Now().Add(time.Minute * 10))
-
-	err = conn.Handshake()
-	return conn, err
 }
 
 func (h *Connect) Handle(token string, outconn net.Conn, req *http.Request) (*http.Response, error) {
@@ -295,6 +339,10 @@ var _ = backends.Register([]string{
 	"connect.forfarmers.dev",
 	"tconnect.forfarmers.eu",
 	"tconnect.forfarmers.devkeytalk.com",
+	"my.test.connect.forfarmers.eu",
+	"connect.forfarmers.eu",
+	"myconnect.forfarmers.eu",
+	"projects.forfarmers.eu",
 }, func() backends.Backend {
 	return &Connect{}
 })

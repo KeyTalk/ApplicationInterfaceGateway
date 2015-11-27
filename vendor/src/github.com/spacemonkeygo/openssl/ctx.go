@@ -409,6 +409,30 @@ func (self *CertificateStoreCtx) GetCurrentCert() *Certificate {
 	return cert
 }
 
+// SSL_CTX_set_client_CA_list tells the context to trust all certificate authorities
+// provided in either the ca_file or the ca_path.
+// See https://www.openssl.org/docs/manmaster/ssl/SSL_CTX_set_client_CA_list.html for
+// more.
+func (c *Ctx) SetClientCAListFromFile(ca_file string) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	var c_ca_file *C.char
+	if ca_file != "" {
+		c_ca_file = C.CString(ca_file)
+		defer C.free(unsafe.Pointer(c_ca_file))
+	}
+
+	bla := C.SSL_load_client_CA_file(c_ca_file)
+	// if *(*int)(unsafe.Pointer(bla)) == 0  {
+	if bla == nil {
+		return errorFromErrorQueue()
+	}
+
+	C.SSL_CTX_set_client_CA_list(c.ctx, bla)
+	return nil
+}
+
 // LoadVerifyLocations tells the context to trust all certificate authorities
 // provided in either the ca_file or the ca_path.
 // See http://www.openssl.org/docs/ssl/SSL_CTX_load_verify_locations.html for
@@ -485,6 +509,29 @@ const (
 )
 
 type VerifyCallback func(ok bool, store *CertificateStoreCtx) bool
+
+//export password_cb_thunk
+func password_cb_thunk(p unsafe.Pointer, size C.int, rw C.int, user_data unsafe.Pointer) C.int {
+	defer func() {
+		if err := recover(); err != nil {
+			logger.Critf("openssl: password callback panic'd: %v", err)
+			os.Exit(1)
+		}
+	}()
+	/*
+		verify_cb := (*Ctx)(p).verify_cb
+		// set up defaults just in case verify_cb is nil
+		if verify_cb != nil {
+			store := &CertificateStoreCtx{ctx: ctx}
+			if verify_cb(ok == 1, store) {
+				ok = 1
+			} else {
+				ok = 0
+			}
+		}
+	*/
+	return 0
+}
 
 //export verify_cb_thunk
 func verify_cb_thunk(p unsafe.Pointer, ok C.int, ctx *C.X509_STORE_CTX) C.int {

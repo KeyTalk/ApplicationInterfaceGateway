@@ -41,8 +41,10 @@ type BackendConn struct {
 	net.Conn
 }
 
-func (h *Quarantine) Dial(email string) (net.Conn, error) {
-	return tls.Dial("tcp", host, tlsConfig)
+func (h *Quarantine) Dial(email string) func(network, address string) (net.Conn, error) {
+	return func(network, address string) (net.Conn, error) {
+		return tls.Dial(network, address, tlsConfig)
+	}
 }
 
 func (h *Quarantine) Handle(token string, outconn net.Conn, req *http.Request) (*http.Response, error) {
