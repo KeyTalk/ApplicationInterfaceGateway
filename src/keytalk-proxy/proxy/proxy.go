@@ -59,6 +59,11 @@ type Server struct {
 	ServerCertificateFile string `toml:"server_cert"`
 	ServerKeyFile         string `toml:"server_key"`
 	AuthType              string `toml:"authenticationtype"`
+	Logging               []struct {
+		Output string `toml:"output"`
+		Level  string `toml:"level"`
+	} `toml:"logging"`
+
 	// Backends              map[string]backends.Backend
 	cert     tls.Certificate
 	listener net.Listener
@@ -98,7 +103,6 @@ func (s *Server) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certific
 }
 
 func (s *Server) Start(bs map[string]backends.Creator) {
-	fmt.Printf("%#v", s.Services)
 	/*
 		cema, err := forfarmers.NewCertificateManager()
 		if err != nil {
