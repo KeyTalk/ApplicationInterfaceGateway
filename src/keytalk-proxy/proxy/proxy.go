@@ -432,13 +432,7 @@ func (s *Server) handle(conn net.Conn) {
 	}
 
 	for {
-		dump, _ := httputil.DumpRequest(req, false)
-		log.Debug("Request: %s", string(dump))
-
-		// req.Host = "tconnect.forfarmers.eu"
-		//fmt.Printf("%#v\n", req.URL.String())
-
-		req.Host = backend.Host(req.Host)
+		req.Host = backend.Host(host)
 
 		req.URL = &url.URL{
 			Scheme:   "https",
@@ -447,6 +441,9 @@ func (s *Server) handle(conn net.Conn) {
 			RawQuery: req.URL.RawQuery,
 			Fragment: req.URL.Fragment,
 		}
+
+		dump, _ := httputil.DumpRequest(req, false)
+		log.Debug("Request: %s", string(dump))
 
 		var resp *http.Response
 		if resp, err = t.RoundTrip(req); err != nil {
