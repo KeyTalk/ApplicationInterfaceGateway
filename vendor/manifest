@@ -15,6 +15,19 @@
 			"path": "/psiphon/upstreamproxy/go-ntlm/ntlm"
 		},
 		{
+			"importpath": "github.com/PuerkitoBio/ghost",
+			"repository": "https://github.com/PuerkitoBio/ghost",
+			"revision": "a0146f2f931611b8bfe40f07018c97a7c881c76a",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/PuerkitoBio/ghost/handlers",
+			"repository": "https://github.com/PuerkitoBio/ghost",
+			"revision": "a0146f2f931611b8bfe40f07018c97a7c881c76a",
+			"branch": "master",
+			"path": "/handlers"
+		},
+		{
 			"importpath": "github.com/coreos/etcd",
 			"repository": "https://github.com/coreos/etcd",
 			"revision": "668a8a836756a0b52d78593c4d8e5970ceec12fe",
@@ -258,9 +271,47 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/garyburd/redigo/internal",
+			"repository": "https://github.com/garyburd/redigo",
+			"revision": "6ece6e0a09f28cc399b21550cbf37ab39ba63cce",
+			"branch": "master",
+			"path": "/internal"
+		},
+		{
+			"importpath": "github.com/garyburd/redigo/redis",
+			"repository": "https://github.com/garyburd/redigo",
+			"revision": "6ece6e0a09f28cc399b21550cbf37ab39ba63cce",
+			"branch": "master",
+			"path": "/redis"
+		},
+		{
+			"importpath": "github.com/gorilla/context",
+			"repository": "https://github.com/gorilla/context",
+			"revision": "1c83b3eabd45b6d76072b66b746c20815fb2872d",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/gorilla/mux",
+			"repository": "https://github.com/gorilla/mux",
+			"revision": "9c068cf16d982f8bd444b8c352acbeec34c4fe5b",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/gorilla/securecookie",
+			"repository": "https://github.com/gorilla/securecookie",
+			"revision": "e95799a481bbcc3d01c2ad5178524cb8bec9f370",
+			"branch": "master"
+		},
+		{
 			"importpath": "github.com/jmckaskill/gontlm",
 			"repository": "https://github.com/jmckaskill/gontlm",
 			"revision": "604ff70eaecc76c9cf9d41d065da6e4449d47b0b",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/nu7hatch/gouuid",
+			"repository": "https://github.com/nu7hatch/gouuid",
+			"revision": "179d4d0c4d8d407a32af483c2354df1d2c91e6c3",
 			"branch": "master"
 		},
 		{

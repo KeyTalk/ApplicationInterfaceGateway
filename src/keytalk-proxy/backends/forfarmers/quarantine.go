@@ -1,20 +1,8 @@
 package forfarmers
 
-import (
-	"bufio"
-	"bytes"
-	"crypto/tls"
-	"keytalk-proxy/backends"
-	"net"
-	"net/http"
-	"net/http/cookiejar"
-
-	"github.com/op/go-logging"
-)
-
+/*
 var cookieJar http.CookieJar
 
-var log = logging.MustGetLogger("forfarmers")
 
 const sessionToken = "service_ticket"
 const host = "quarantine.forfarmers.eu:443"
@@ -125,7 +113,7 @@ func (h *Quarantine) Authenticate(email string) (string, error) {
 }
 
 func setHeaders(r *http.Request) {
-	r.Header.Set("Accept", "application/json, text/plain, */*")
+	r.Header.Set("Accept", "application/json, text/plain, *-/*")
 	r.Header.Set("Accept-Encoding", "Encoding:gzip, deflate")
 	r.Header.Set("Connection", "close")
 	r.Header.Set("Content-Type", "application/json;charset=UTF-8")
@@ -150,3 +138,4 @@ func register() backends.Creator {
 		}
 	}
 }
+*/

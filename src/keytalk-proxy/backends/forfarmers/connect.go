@@ -1,7 +1,6 @@
 package forfarmers
 
 import (
-	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -15,26 +14,24 @@ import (
 	"math/big"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"time"
 
 	"golang.org/x/net/context"
 
 	"github.com/coreos/etcd/client"
+	"github.com/op/go-logging"
 	"github.com/spacemonkeygo/openssl"
 )
 
+var log = logging.MustGetLogger("forfarmers")
+
 type Connect struct {
-	credentials backends.Credentials
+	Backend string   `toml:"backend"`
+	Hosts   []string `toml:"hosts"`
+
+	cema *CertificateManager
+	cama *CacheManager
 }
-
-// https://github.com/jmckaskill/gontlm/blob/master/nhttp/http.go
-// TODO: RoundTrip?
-
-// Dial
-// Authorize
-// HeadfirstSession
-// maybe have a http(s) base handler
 type CacheManager struct {
 	client.KeysAPI
 }
@@ -184,12 +181,11 @@ func (cm *CertificateManager) Generate(email string) ([]byte, *rsa.PrivateKey, e
 			Method:   asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 20, 2, 3},
 			Location: asn1.RawValue{Tag: 0xC, Class: 0x0, Bytes: []byte("nstri@Forfarmers.local")}}},
 		[]string{},
-		[]string{"nstri@forfarmers.eu"},
+		[]string{email},
 		[]net.IP{},
 	)
 
 	fmt.Printf("SubjectAltName: %x\n", subjectAltName)
-	subjectAltName[2] = 0xA0
 
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
@@ -262,145 +258,136 @@ func NewCertificateManager() (*CertificateManager, error) {
 	return &CertificateManager{}, nil
 }
 
-func (h *Connect) Dial(email string) func(network, address string) (net.Conn, error) {
+func (cs *ConnectSession) RoundTrip(r *http.Request) (*http.Response, error) {
+	return cs.RoundTripper.RoundTrip(r)
+
+}
+
+func (cs *ConnectSession) DialTLS(network, address string) (net.Conn, error) {
+	ctx, err := openssl.NewCtx()
+	if err != nil {
+		log.Error("Error creating openssl ctx: %s", err.Error())
+		return nil, err
+	}
+
+	cert99, err := openssl.LoadCertificateFromPEM(cs.certstr)
+	if err != nil {
+		log.Error("Error creating openssl ctx: %s", err.Error())
+		return nil, err
+	}
+
+	ctx.UseCertificate(cert99)
+
+	pk99, err := openssl.LoadPrivateKeyFromPEM(cs.keystr)
+	if err != nil {
+		log.Error("Error creating openssl ctx: %s", err.Error())
+		return nil, err
+	}
+
+	ctx.UsePrivateKey(pk99)
+
+	ctx.SetSessionCacheMode(openssl.SessionCacheClient)
+
+	ctx.SetSessionId([]byte{1})
+
+	ctx.SetVerifyMode(openssl.VerifyNone)
+
+	conn, err := openssl.Dial("tcp", cs.c.Backend, ctx, openssl.InsecureSkipHostVerification)
+	if err != nil {
+		log.Error("Error dialing: %s", err.Error())
+		return nil, err
+	}
+
+	host, _, err := net.SplitHostPort(address)
+
+	// host = "tconnect.forfarmers.eu"
+
+	if err = conn.SetTlsExtHostName(host); err != nil {
+		log.Error("Error set tls ext host: %s", err.Error())
+		return nil, err
+	}
+
+	conn.SetDeadline(time.Now().Add(time.Minute * 10))
+
+	err = conn.Handshake()
+	if err != nil {
+		log.Error("Error handshake: %s", err.Error())
+		return nil, err
+	}
+	return conn, err
+}
+
+type ConnectSession struct {
+	http.RoundTripper
+	email   string
+	certstr []byte
+	keystr  []byte
+	c       *Connect
+}
+
+func (h *Connect) Host(host string) string {
+	return "tconnect.forfarmers.eu"
+	//return "my312682.crm.ondemand.com"
+}
+
+func (h *Connect) NewSession(email string) (http.RoundTripper, error) {
+
+	certstr, _ := h.cama.GetBytes(fmt.Sprintf("connect.forfarmers.eu:%s:cert", email))
+
+	keystr, _ := h.cama.GetBytes(fmt.Sprintf("connect.forfarmers.eu:%s:key", email))
+
+	if len(keystr) == 0 {
+		derBytes, priv, err := h.cema.Generate(email)
+		if err != nil {
+			return nil, err
+		}
+
+		cert := &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}
+		certstr = pem.EncodeToMemory(cert)
+		if err := h.cama.Set(fmt.Sprintf("connect.forfarmers.eu:%s:cert", email), cert); err != nil {
+			return nil, err
+		}
+
+		key := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}
+		keystr = pem.EncodeToMemory(key)
+		if err := h.cama.Set(fmt.Sprintf("connect.forfarmers.eu:%s:key", email), key); err != nil {
+			return nil, err
+		}
+	}
+
+	// check certificate
+	cs := &ConnectSession{
+		email:   email,
+		c:       h,
+		certstr: certstr,
+		keystr:  keystr,
+	}
+
+	cs.RoundTripper = &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		Dial:                cs.DialTLS,
+		DialTLS:             cs.DialTLS,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+
+	return cs, nil
+}
+
+var _ = backends.Register2("client-certificate", func() backends.Backend {
 	cema, err := NewCertificateManager()
 	if err != nil {
 		fmt.Println(err.Error())
 		return nil
 	}
 
-	cm, err := NewCacheManager()
+	cama, err := NewCacheManager()
 	if err != nil {
 		fmt.Println(err.Error())
 		return nil
 	}
 
-	certstr, _ := cm.GetBytes(fmt.Sprintf("connect.forfarmers.eu:%s:cert", email))
-
-	keystr, _ := cm.GetBytes(fmt.Sprintf("connect.forfarmers.eu:%s:key", email))
-
-	if len(keystr) == 0 {
-		derBytes, priv, err := cema.Generate(email)
-		if err != nil {
-			fmt.Println(err.Error())
-			return nil
-		}
-
-		cert := &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}
-		certstr = pem.EncodeToMemory(cert)
-		if err := cm.Set(fmt.Sprintf("connect.forfarmers.eu:%s:cert", email), cert); err != nil {
-			fmt.Println(err.Error())
-			return nil
-		}
-
-		key := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}
-		keystr = pem.EncodeToMemory(key)
-		if err := cm.Set(fmt.Sprintf("connect.forfarmers.eu:%s:key", email), key); err != nil {
-			fmt.Println(err.Error())
-		}
+	return &Connect{
+		cema: cema,
+		cama: cama,
 	}
-
-	fmt.Printf("email %s\n%s\n%s\n", email, keystr, certstr)
-
-	return func(network, address string) (net.Conn, error) {
-
-		fmt.Printf("Dialing %s %s\n", network, address)
-
-		ctx, err := openssl.NewCtx()
-		if err != nil {
-			log.Error("Error creating openssl ctx: %s", err.Error())
-			return nil, err
-		}
-
-		cert99, err := openssl.LoadCertificateFromPEM(certstr)
-		if err != nil {
-			log.Error("Error creating openssl ctx: %s", err.Error())
-			return nil, err
-		}
-
-		ctx.UseCertificate(cert99)
-
-		pk99, err := openssl.LoadPrivateKeyFromPEM(keystr)
-		if err != nil {
-			log.Error("Error creating openssl ctx: %s", err.Error())
-			return nil, err
-		}
-
-		ctx.UsePrivateKey(pk99)
-
-		ctx.SetVerifyMode(openssl.VerifyNone)
-
-		//conn, err := openssl.Dial("tcp", "127.0.0.1:8443", ctx, openssl.InsecureSkipHostVerification)
-		conn, err := openssl.Dial("tcp", "172.20.0.133:443", ctx, openssl.InsecureSkipHostVerification)
-		if err != nil {
-			log.Error("Error dialing: %s", err.Error())
-			return nil, err
-		}
-
-		host, _, err := net.SplitHostPort(address)
-
-		if err = conn.SetTlsExtHostName(host); err != nil {
-			log.Error("Error set tls ext host: %s", err.Error())
-			return nil, err
-		}
-
-		conn.SetDeadline(time.Now().Add(time.Minute * 10))
-
-		err = conn.Handshake()
-		if err != nil {
-			log.Error("Error handshake: %s", err.Error())
-			return nil, err
-		}
-		return conn, err
-	}
-}
-
-func (h *Connect) Handle(token string, outconn net.Conn, req *http.Request) (*http.Response, error) {
-	dump, _ := httputil.DumpRequestOut(req, false)
-	fmt.Printf("Request: %s\n", string(dump))
-
-	req.Host = "tconnect.forfarmers.eu"
-
-	// TODO
-	// req.Header.Set("X-Forwarded-For", req.
-
-	if err := req.Write(outconn); err != nil {
-		log.Debug("req.Write(outconn) %s", err.Error())
-		return nil, err
-	}
-
-	r := bufio.NewReader(outconn)
-	resp, err := http.ReadResponse(r, req)
-	if err != nil {
-		log.Debug("resp.Read(outconn) %s", err.Error())
-		return nil, err
-	}
-
-	resp.Header.Get("Location")
-
-	dump, _ = httputil.DumpResponse(resp, false)
-	log.Debug("Response: %s\n", string(dump))
-
-	return resp, err
-}
-
-func (h *Connect) Authenticate(email string) (string, error) {
-	fmt.Println(email)
-	return "", nil
-}
-
-// return transport roundtripper
-// https://github.com/golang/go/blob/f78a4c84ac8ed44aaf331989aa32e40081fd8f13/src/net/http/filetransport.go<Paste>
-
-var _ = backends.Register([]string{
-	"connect.forfarmers.lvh.me",
-	"connect.forfarmers.dev",
-	"tconnect.forfarmers.eu",
-	"tconnect.forfarmers.devkeytalk.com",
-	"my.test.connect.forfarmers.eu",
-	"connect.forfarmers.eu",
-	"myconnect.forfarmers.eu",
-	"projects.forfarmers.eu",
-}, func() backends.Backend {
-	return &Connect{}
 })

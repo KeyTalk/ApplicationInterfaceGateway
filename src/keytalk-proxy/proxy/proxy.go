@@ -3,8 +3,6 @@ package proxy
 import (
 	"bufio"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -15,17 +13,19 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
-	"time"
 
 	"keytalk-proxy/backends"
 	"keytalk-proxy/backends/forfarmers"
 
+	"github.com/BurntSushi/toml"
+	"github.com/PuerkitoBio/ghost/handlers"
+	"github.com/gorilla/mux"
 	"github.com/spacemonkeygo/openssl"
 
 	logging "github.com/op/go-logging"
 )
 
-var log = logging.MustGetLogger("api")
+var log = logging.MustGetLogger("proxy")
 
 var (
 	ErrBackendNotFound = errors.New("Backend not found")
@@ -59,10 +59,38 @@ type Server struct {
 	ServerCertificateFile string `toml:"server_cert"`
 	ServerKeyFile         string `toml:"server_key"`
 	AuthType              string `toml:"authenticationtype"`
-	Backends              map[string]backends.Backend
-	cert                  tls.Certificate
-	listener              net.Listener
+	// Backends              map[string]backends.Backend
+	cert     tls.Certificate
+	listener net.Listener
+	Services map[string]toml.Primitive `toml:"Services"`
+	cema     *forfarmers.CertificateManager
 }
+
+type Service struct {
+	Type    string   `toml:"type"`
+	Backend string   `toml:"backend"`
+	Hosts   []string `toml:"hosts"`
+}
+
+/*
+func (s *Service) UnmarshalTOML(p interface{}) {
+		s.Type, _ = data["type"].(string)
+		s.Backend, _ = data["backend"].(string)
+
+		m.Hosts = make([]string)
+		dishes := data["dishes"].(map[string]interface{})
+		for n, v := range dishes {
+			if d, ok := v.(map[string]interface{}); ok {
+				nd := dish{}
+				nd.UnmarshalTOML(d)
+				m.Dishes[n] = nd
+			} else {
+				return fmt.Errorf("not a dish")
+			}
+		}
+
+}
+*/
 
 func (s *Server) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	log.Debug("Certificate request for %s", clientHello.ServerName)
@@ -70,94 +98,97 @@ func (s *Server) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certific
 }
 
 func (s *Server) Start(bs map[string]backends.Creator) {
-	cema, err := forfarmers.NewCertificateManager()
-	if err != nil {
-		fmt.Println(err.Error())
-		return
-	}
-
-	derBytes, priv, err := cema.Generate("innotest")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	cert := &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}
-	certstr := pem.EncodeToMemory(cert)
-
-	key := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}
-	keystr := pem.EncodeToMemory(key)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println(string(certstr))
-	fmt.Println(string(keystr))
+	fmt.Printf("%#v", s.Services)
 	/*
-		// b, _ := asn1.Marshal(asn1.RawValue{Tag: 0, Class: 2, Bytes: []byte("innotest, email:innotest@forfarmers.eu")})
-		b, _ := asn1.Marshal(asn1.RawValue{Tag: 0, Class: 2, Bytes: []byte("msUPN;UTF8:innotest, email:innotest@forfarmers.eu")})
-
-		fmt.Printf("%x\n", b)
-
-		rest := []byte{0x30, 0x43, 0xa0, 0x29, 0x06, 0x0a, 0x2b, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x14, 0x02, 0x03, 0xa0, 0x1b, 0x0c, 0x19, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x46, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x81, 0x16, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x66, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x65, 0x75}
-
-		bla2, err := marshalSANs([]otherName{otherName{Method: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 20, 2, 3}, Location: asn1.RawValue{Tag: 0, Class: 2, Bytes: []byte("innotest@Forfarmers.local")}}}, []string{}, []string{"innotest@forfarmers.eu"}, []net.IP{})
-		fmt.Printf("Marshalled %x %#v\n", bla2, err)
-
-		var v asn1.RawValue
-		//var err error
-		rest, err = asn1.Unmarshal(rest, &v)
-
-		rest = v.Bytes
-		// rest := []byte{0x30, 0x32, 0xa0, 0x18, 0x6, 0xa, 0x2b, 0x6, 0x1, 0x4, 0x1, 0x82, 0x37, 0x14, 0x2, 0x3, 0xa0, 0xa, 0xc, 0x8, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x81, 0x16, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x66, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x65, 0x75}
-		fmt.Printf("Rest %x", rest)
-		for len(rest) > 0 {
-			var v asn1.RawValue
-			// var err error
-			rest, err = asn1.Unmarshal(rest, &v)
-			if err != nil {
-				fmt.Printf("%#v", err.Error())
-				break
-			}
-
-			fmt.Printf("Tag: %d %d %d %#v %s\n\n", v.Tag, v.Class, len(v.Bytes), v.Bytes, string(v.Bytes))
-			// rest = v.Bytes
-
-			switch v.Tag {
-			case 0:
-				rest2 := v.Bytes
-
-				var ID asn1.ObjectIdentifier
-				rest2, _ = asn1.Unmarshal(rest2, &ID)
-				fmt.Printf("REMCO %#v\n\n%#v\n", 0, ID)
-
-				var rv asn1.RawValue
-				rest2, _ = asn1.Unmarshal(rest2, &rv)
-				fmt.Printf("REMCO %#v\n\n%#v\n%s\n", 0, rv, string(rv.Bytes))
-			case 1:
-				fmt.Printf("Email: %s", string(v.Bytes))
-				/*
-						emailAddresses = append(emailAddresses, string(v.Bytes))
-					case 2:
-						dnsNames = append(dnsNames, string(v.Bytes))
-					case 7:
-						switch len(v.Bytes) {
-						case net.IPv4len, net.IPv6len:
-							ipAddresses = append(ipAddresses, v.Bytes)
-						default:
-							err = errors.New("x509: certificate contained IP address of length " + strconv.Itoa(len(v.Bytes)))
-							return
-						}
-					}*
-			}
-
+		cema, err := forfarmers.NewCertificateManager()
+		if err != nil {
+			fmt.Println(err.Error())
+			return
 		}
-		return
 
-		var subjectAltName struct {
-			V asn1.RawValue
-			/*
-				R1 struct {
-				} `asn1,tag:0`
+
+		derBytes, priv, err := cema.Generate("innotest")
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		cert := &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}
+		certstr := pem.EncodeToMemory(cert)
+
+		key := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}
+		keystr := pem.EncodeToMemory(key)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+			fmt.Println(string(certstr))
+			fmt.Println(string(keystr))
+
+			// b, _ := asn1.Marshal(asn1.RawValue{Tag: 0, Class: 2, Bytes: []byte("innotest, email:innotest@forfarmers.eu")})
+			b, _ := asn1.Marshal(asn1.RawValue{Tag: 0, Class: 2, Bytes: []byte("msUPN;UTF8:innotest, email:innotest@forfarmers.eu")})
+
+			fmt.Printf("%x\n", b)
+
+			rest := []byte{0x30, 0x43, 0xa0, 0x29, 0x06, 0x0a, 0x2b, 0x06, 0x01, 0x04, 0x01, 0x82, 0x37, 0x14, 0x02, 0x03, 0xa0, 0x1b, 0x0c, 0x19, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x46, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x81, 0x16, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x66, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x65, 0x75}
+
+			bla2, err := marshalSANs([]otherName{otherName{Method: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 20, 2, 3}, Location: asn1.RawValue{Tag: 0, Class: 2, Bytes: []byte("innotest@Forfarmers.local")}}}, []string{}, []string{"innotest@forfarmers.eu"}, []net.IP{})
+			fmt.Printf("Marshalled %x %#v\n", bla2, err)
+
+			var v asn1.RawValue
+			//var err error
+			rest, err = asn1.Unmarshal(rest, &v)
+
+			rest = v.Bytes
+			// rest := []byte{0x30, 0x32, 0xa0, 0x18, 0x6, 0xa, 0x2b, 0x6, 0x1, 0x4, 0x1, 0x82, 0x37, 0x14, 0x2, 0x3, 0xa0, 0xa, 0xc, 0x8, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x81, 0x16, 0x69, 0x6e, 0x6e, 0x6f, 0x74, 0x65, 0x73, 0x74, 0x40, 0x66, 0x6f, 0x72, 0x66, 0x61, 0x72, 0x6d, 0x65, 0x72, 0x73, 0x2e, 0x65, 0x75}
+			fmt.Printf("Rest %x", rest)
+			for len(rest) > 0 {
+				var v asn1.RawValue
+				// var err error
+				rest, err = asn1.Unmarshal(rest, &v)
+				if err != nil {
+					fmt.Printf("%#v", err.Error())
+					break
+				}
+
+				fmt.Printf("Tag: %d %d %d %#v %s\n\n", v.Tag, v.Class, len(v.Bytes), v.Bytes, string(v.Bytes))
+				// rest = v.Bytes
+
+				switch v.Tag {
+				case 0:
+					rest2 := v.Bytes
+
+					var ID asn1.ObjectIdentifier
+					rest2, _ = asn1.Unmarshal(rest2, &ID)
+					fmt.Printf("REMCO %#v\n\n%#v\n", 0, ID)
+
+					var rv asn1.RawValue
+					rest2, _ = asn1.Unmarshal(rest2, &rv)
+					fmt.Printf("REMCO %#v\n\n%#v\n%s\n", 0, rv, string(rv.Bytes))
+				case 1:
+					fmt.Printf("Email: %s", string(v.Bytes))
+					/*
+							emailAddresses = append(emailAddresses, string(v.Bytes))
+						case 2:
+							dnsNames = append(dnsNames, string(v.Bytes))
+						case 7:
+							switch len(v.Bytes) {
+							case net.IPv4len, net.IPv6len:
+								ipAddresses = append(ipAddresses, v.Bytes)
+							default:
+								err = errors.New("x509: certificate contained IP address of length " + strconv.Itoa(len(v.Bytes)))
+								return
+							}
+						}*
+				}
+
+			}
+			return
+
+			var subjectAltName struct {
+				V asn1.RawValue
+				/*
+					R1 struct {
+					} `asn1,tag:0`
 	*/
 	//MaxPathLen int `asn1:"default:-1"`
 	// ID         asn1.ObjectIdentifier
@@ -204,29 +235,38 @@ func (s *Server) Start(bs map[string]backends.Creator) {
 		fmt.Printf("Rest %x", rest)
 	*/
 
-	s.Backends = map[string]backends.Backend{}
-	for k, v := range bs {
-		s.Backends[k] = v()
-	}
+	/*
+		s.Backends = map[string]backends.Backend{}
+		for k, v := range bs {
+			s.Backends[k] = v()
+		}
+	*/
 
 	s.startRedirector()
 	s.startEtcd()
+
+	var err error
+	s.cema, err = forfarmers.NewCertificateManager()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// var err error
 
 	ctx, err := openssl.NewCtxFromFiles(s.ServerCertificateFile, s.ServerKeyFile)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Ctx", err.Error())
 	}
 
+	log.Debug("Loading CA certificate: %s", s.CACertificateFile)
 	err = ctx.LoadVerifyLocations(s.CACertificateFile, "")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("loadVer", err.Error())
 	}
 
 	err = ctx.SetClientCAListFromFile(s.CACertificateFile)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("SetClientCA", err.Error())
 	}
 	ctx.SetSessionCacheMode(openssl.SessionCacheServer)
 
@@ -249,40 +289,32 @@ func (s *Server) Start(bs map[string]backends.Creator) {
 	s.listenAndServe()
 }
 
-func RedirectHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		log.Debug("Redirecting http to https (http://%s/%s)", r.Host, r.RequestURI)
-		http.Redirect(w, r, fmt.Sprintf("https://%s%s", r.Host, r.RequestURI), 301)
-		return
-	}
+func RedirectHandler(w http.ResponseWriter, r *http.Request) {
+	log.Debug("Redirecting http to https (http://%s/%s)", r.Host, r.RequestURI)
+	http.Redirect(w, r, fmt.Sprintf("https://%s%s", r.Host, r.RequestURI), 301)
 }
 
 func (s *Server) startRedirector() {
 	go func() {
-		mux := http.NewServeMux()
+		r := mux.NewRouter()
 
-		mux.HandleFunc("/ca.crl", func(w http.ResponseWriter, r *http.Request) {
+		r.HandleFunc("/ca.crl", func(w http.ResponseWriter, r *http.Request) {
 
-			cema, err := forfarmers.NewCertificateManager()
+			buff, err := s.cema.GenerateCRL()
 			if err != nil {
-				fmt.Println(err.Error())
+				log.Error("Error: %s", err.Error())
 				return
 			}
 
-			buff, err := cema.GenerateCRL()
-			if err != nil {
-				fmt.Println(err.Error())
-				return
-			}
-
-			fmt.Println(string(buff))
 			w.Write(buff)
-
+			return
 		})
+
+		r.NotFoundHandler = http.HandlerFunc(RedirectHandler)
 
 		s := &http.Server{
 			Addr:    s.ListenerString,
-			Handler: mux, // RedirectHandler(mux),
+			Handler: handlers.LogHandler(r, handlers.NewLogOptions(log.Info, "_default_")),
 		}
 
 		log.Fatal(s.ListenAndServe())
@@ -296,8 +328,6 @@ func (s *Server) listenAndServe() {
 			log.Error("server: accept: %s", err)
 			break
 		}
-
-		log.Info("server: accepted from %s", conn.RemoteAddr())
 
 		go s.handle(conn)
 	}
@@ -375,47 +405,40 @@ func (s *Server) handle(conn net.Conn) {
 		host = req.Host
 	}
 
-	log.Info("Request for host %s and path %s.", host, req.URL.String())
-
 	backend, err := s.fetchBackend(host)
 	if err != nil {
 		return
 	}
 
 	commonName := ""
-	if cert != nil {
-
-		// subject = clientCert.Subject.CommonName
-		subject, err := cert.GetSubjectName()
-		if err != nil {
-
-		}
-
-		fmt.Printf("%#v, %#v", subject, err)
-
-		if s, ok := subject.GetEntry(openssl.NID_commonName); ok {
-			//		fmt.Println("Commonname", s)
-			commonName = s
-		}
-
-		if _, err = backend.Authenticate(commonName); err != nil {
-			return
-		}
+	if cert == nil {
+		// err
+		return
 	}
 
-	var t http.RoundTripper = &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		Dial:                backend.Dial(commonName),
-		DialTLS:             backend.Dial(commonName),
-		TLSHandshakeTimeout: 10 * time.Second,
+	subject, err := cert.GetSubjectName()
+	if err != nil {
+
+	}
+
+	if s, ok := subject.GetEntry(openssl.NID_commonName); ok {
+		//		fmt.Println("Commonname", s)
+		commonName = s
+	}
+
+	t, err := backend.NewSession(commonName)
+	if err != nil {
+		return
 	}
 
 	for {
 		dump, _ := httputil.DumpRequest(req, false)
-		fmt.Printf("Request: %s\n", string(dump))
+		log.Debug("Request: %s", string(dump))
 
 		// req.Host = "tconnect.forfarmers.eu"
-		fmt.Printf("%#v\n", req.URL.String())
+		//fmt.Printf("%#v\n", req.URL.String())
+
+		req.Host = backend.Host(req.Host)
 
 		req.URL = &url.URL{
 			Scheme:   "https",
@@ -424,11 +447,9 @@ func (s *Server) handle(conn net.Conn) {
 			RawQuery: req.URL.RawQuery,
 			Fragment: req.URL.Fragment,
 		}
-		fmt.Printf("%#v\n", req.URL.String())
 
 		var resp *http.Response
 		if resp, err = t.RoundTrip(req); err != nil {
-			//if resp, err = backend.Handle(token, clientconn, req); err != nil {
 			return
 		}
 
@@ -440,14 +461,12 @@ func (s *Server) handle(conn net.Conn) {
 		}
 
 		dump, _ = httputil.DumpResponse(resp, false)
-		log.Debug("Response: %s\n", string(dump))
-
 		if err = resp.Write(tlscon); err != nil {
 			return
 		}
 
-		log.Info("%s %s %s %d %s %s", req.Host, req.URL.String(), req.Header.Get("Content-Type"), resp.StatusCode, commonName, req.Header.Get("Referer"))
 		// TODO: add apache compatible format
+		log.Info("%s %s %s %d %s %s", req.Host, req.URL.String(), req.Header.Get("Content-Type"), resp.StatusCode, commonName, req.Header.Get("Referer"))
 
 		// for keep alive, next request
 		req, err = http.ReadRequest(reader)
@@ -460,7 +479,7 @@ func (s *Server) handle(conn net.Conn) {
 }
 
 func (s *Server) fetchBackend(host string) (backends.Backend, error) {
-	if backend, ok := s.Backends[host]; ok {
+	if backend, ok := backends.Hosts[host]; ok {
 		return backend, nil
 	}
 	return nil, ErrBackendNotFound

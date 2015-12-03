@@ -10,16 +10,23 @@ import (
 
 var log = logging.MustGetLogger("backend")
 
-type Backend interface {
+type BackendSession interface {
 	Dial(email string) func(network, address string) (net.Conn, error)
+	// DialTLS(email string) func(network, address string) (net.Conn, error)
 	// TODO: should Authenticate return a new session? The session will handle the traffic
 	Authenticate(email string) (string, error)
 	Handle(string, net.Conn, *http.Request) (*http.Response, error)
 }
 
+type Backend interface {
+	NewSession(string) (http.RoundTripper, error)
+	Host(string) string
+}
+
 type Creator func() Backend
 
 var Backends = map[string]Creator{}
+var Hosts = map[string]Backend{}
 
 func Register(hosts []string, creator Creator) Creator {
 	for _, host := range hosts {
@@ -27,6 +34,12 @@ func Register(hosts []string, creator Creator) Creator {
 		Backends[host] = creator
 	}
 
+	return creator
+}
+
+func Register2(t string, creator Creator) Creator {
+	log.Info("Registered service for: %s", t)
+	Backends[t] = creator
 	return creator
 }
 

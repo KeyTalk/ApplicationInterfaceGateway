@@ -1,5 +1,7 @@
 package headfirst
 
+/*
+
 import (
 	"bufio"
 	"bytes"
@@ -118,7 +120,7 @@ func (h *Headfirst) Authenticate(email string) (string, error) {
 }
 
 func setHeaders(r *http.Request) {
-	r.Header.Set("Accept", "application/json, text/plain, */*")
+	r.Header.Set("Accept", "application/json, text/plain, *+-/*")
 	r.Header.Set("Accept-Encoding", "Encoding:gzip, deflate")
 	r.Header.Set("Connection", "close")
 	r.Header.Set("Content-Type", "application/json;charset=UTF-8")
@@ -142,3 +144,4 @@ func register() backends.Creator {
 		}
 	}
 }
+*/
