@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -15,7 +16,6 @@ import (
 	"strings"
 
 	"keytalk-proxy/backends"
-	"keytalk-proxy/backends/forfarmers"
 
 	"github.com/BurntSushi/toml"
 	"github.com/PuerkitoBio/ghost/handlers"
@@ -68,7 +68,7 @@ type Server struct {
 	cert     tls.Certificate
 	listener net.Listener
 	Services map[string]toml.Primitive `toml:"Services"`
-	cema     *forfarmers.CertificateManager
+	cema     *backends.CertificateManager
 }
 
 type Service struct {
@@ -250,7 +250,7 @@ func (s *Server) Start(bs map[string]backends.Creator) {
 	s.startEtcd()
 
 	var err error
-	s.cema, err = forfarmers.NewCertificateManager()
+	s.cema, err = backends.NewCertificateManager()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -323,6 +323,63 @@ func (s *Server) startRedirector() {
 
 		log.Fatal(s.ListenAndServe())
 	}()
+}
+
+func NewChangeStream(r io.ReadCloser) io.ReadCloser {
+	return &ChangeStream{r, []byte{}}
+}
+
+type ChangeStream struct {
+	io.ReadCloser
+
+	// being used for temporarily rest, when being replaced with longer
+	overflow []byte
+}
+
+func (cs *ChangeStream) Read(p []byte) (n int, err error) {
+	copy(p, cs.overflow)
+
+	n, err = cs.ReadCloser.Read(p[len(cs.overflow):])
+	if err == io.EOF {
+	} else if err != nil {
+		return n, err
+	}
+
+	cs.overflow = []byte{}
+
+	needle := []byte("srvnllobot.forfarmers.local")
+
+	repl := []byte("bo-t-nl.forfarmers.eu")
+
+	// currently we are assuming:
+	for i := 0; i < n-len(needle); i++ {
+		if bytes.Compare(p[i:i+len(needle)], needle) != 0 {
+			continue
+		}
+
+		newIndex := i
+
+		// take care of longer, sizes, put in rest buffer.
+		for j := 0; j < len(repl); j++ {
+			p[newIndex] = repl[j]
+			newIndex++
+		}
+
+		oldIndex := i + len(needle)
+		for oldIndex < n {
+			p[newIndex] = p[oldIndex]
+			oldIndex++
+			newIndex++
+		}
+
+		n = newIndex
+	}
+
+	return n, err
+}
+
+func (cs *ChangeStream) Close() error {
+	return cs.ReadCloser.Close()
 }
 
 func (s *Server) listenAndServe() {
@@ -422,16 +479,17 @@ func (s *Server) handle(conn net.Conn) {
 
 	subject, err := cert.GetSubjectName()
 	if err != nil {
-
+		log.Error(err.Error())
+		return
 	}
 
 	if s, ok := subject.GetEntry(openssl.NID_commonName); ok {
-		//		fmt.Println("Commonname", s)
 		commonName = s
 	}
 
 	t, err := backend.NewSession(commonName)
 	if err != nil {
+		log.Error(err.Error())
 		return
 	}
 
@@ -445,6 +503,8 @@ func (s *Server) handle(conn net.Conn) {
 			RawQuery: req.URL.RawQuery,
 			Fragment: req.URL.Fragment,
 		}
+
+		req.Header.Del("Accept-Encoding")
 
 		dump, _ := httputil.DumpRequest(req, false)
 		log.Debug("Request: %s", string(dump))
@@ -460,6 +520,8 @@ func (s *Server) handle(conn net.Conn) {
 		case 403:
 			// TODO: try to sign in again
 		}
+
+		resp.Body = NewChangeStream(resp.Body)
 
 		dump, _ = httputil.DumpResponse(resp, false)
 		if err = resp.Write(tlscon); err != nil {
