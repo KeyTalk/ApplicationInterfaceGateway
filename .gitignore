@@ -12,3 +12,5 @@ serial.txt*
 database.txt*
 config.toml
 pkg/
+logs/
+includes/

@@ -271,6 +271,12 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/docopt/docopt-go",
+			"repository": "https://github.com/docopt/docopt-go",
+			"revision": "854c423c810880e30b9fecdabb12d54f4a92f9bb",
+			"branch": "master"
+		},
+		{
 			"importpath": "github.com/garyburd/redigo/internal",
 			"repository": "https://github.com/garyburd/redigo",
 			"revision": "6ece6e0a09f28cc399b21550cbf37ab39ba63cce",
@@ -309,9 +315,45 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/kr/pretty",
+			"repository": "https://github.com/kr/pretty",
+			"revision": "e6ac2fc51e89a3249e82157fa0bb7a18ef9dd5bb",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/kr/text",
+			"repository": "https://github.com/kr/text",
+			"revision": "bb797dc4fb8320488f47bf11de07a733d7233e1f",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/nmcclain/asn1-ber",
+			"repository": "https://github.com/nmcclain/asn1-ber",
+			"revision": "ec51d5ed21377b4023ca7b1e70ae4cb296ee6047",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/nmcclain/glauth",
+			"repository": "https://github.com/nmcclain/glauth",
+			"revision": "583de03f28e3298aa0438914f7f296242b5ac14f",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/nmcclain/ldap",
+			"repository": "https://github.com/nmcclain/ldap",
+			"revision": "2a93a58a34c92bac004ec9f0bb2e8cdeed583cad",
+			"branch": "master"
+		},
+		{
 			"importpath": "github.com/nu7hatch/gouuid",
 			"repository": "https://github.com/nu7hatch/gouuid",
 			"revision": "179d4d0c4d8d407a32af483c2354df1d2c91e6c3",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/op/go-logging",
+			"repository": "https://github.com/op/go-logging",
+			"revision": "dfaf3dff9b631bc4236201d90d41ee0de9202889",
 			"branch": "master"
 		},
 		{
