@@ -114,7 +114,7 @@ func (cm *CertificateManager) Generate(email string) ([]byte, *rsa.PrivateKey, e
 			Method:   asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 20, 2, 3},
 			Location: asn1.RawValue{Tag: 0xC, Class: 0x0, Bytes: []byte(email)}}},
 		[]string{},
-		[]string{email},
+		[]string{},
 		[]net.IP{},
 	)
 
@@ -135,8 +135,7 @@ func (cm *CertificateManager) Generate(email string) ([]byte, *rsa.PrivateKey, e
 				pkix.AttributeTypeAndValue{Type: asn1.ObjectIdentifier{0, 9, 2342, 19200300, 100, 1, 25}, Value: "Forfarmers"},
 				pkix.AttributeTypeAndValue{Type: asn1.ObjectIdentifier{2, 5, 4, 11}, Value: "NL"},
 				pkix.AttributeTypeAndValue{Type: asn1.ObjectIdentifier{2, 5, 4, 11}, Value: "Lochem"},
-				pkix.AttributeTypeAndValue{Type: asn1.ObjectIdentifier{2, 5, 4, 11}, Value: "Extern"},
-				pkix.AttributeTypeAndValue{Type: asn1.ObjectIdentifier{2, 5, 4, 11}, Value: "Innovice IT"},
+				pkix.AttributeTypeAndValue{Type: asn1.ObjectIdentifier{2, 5, 4, 11}, Value: "Keytalk"},
 				pkix.AttributeTypeAndValue{Type: asn1.ObjectIdentifier{2, 5, 4, 3}, Value: email},
 			},
 		},
@@ -168,7 +167,7 @@ func (cm *CertificateManager) Generate(email string) ([]byte, *rsa.PrivateKey, e
 		UnknownExtKeyUsage: []asn1.ObjectIdentifier{
 			asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 20, 2, 2},
 		},
-		CRLDistributionPoints: []string{"http://192.168.102.152/ca.crl"},
+		// CRLDistributionPoints: []string{cm.CRLUrl},
 	}
 
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)

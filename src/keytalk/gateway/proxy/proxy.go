@@ -3,7 +3,6 @@ package proxy
 import (
 	"bufio"
 	"bytes"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"html/template"
@@ -14,6 +13,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"runtime"
+	"strings"
 
 	"keytalk/gateway/backends"
 
@@ -51,11 +51,11 @@ type Server struct {
 	AuthType              string   `toml:"authenticationtype"`
 	Logging               *Logging `toml:"logging"`
 
-	Services           map[string]toml.Primitive    `toml:"services"`
+	Services map[string]toml.Primitive `toml:"services"`
+
 	CertificateManager *backends.CertificateManager `toml:"certificate-manager"`
 	CacheManager       *backends.CacheManager
 
-	cert     tls.Certificate
 	listener net.Listener
 	template *template.Template
 }
@@ -66,17 +66,19 @@ type Service struct {
 	Hosts   []string `toml:"hosts"`
 }
 
-func (s *Server) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	log.Debug("Certificate request for %s", clientHello.ServerName)
-	return &s.cert, nil
-}
-
 func New(configFile string) *Server {
 	server := &Server{}
 
 	md, err := toml.DecodeFile(configFile, server)
 	if err != nil {
 		panic(err)
+	}
+
+	server.template = template.Must(template.New("index.html").Parse(`Keytalk gateway error: <b>{{ .error }}</b>`))
+
+	server.CacheManager, err = backends.NewCacheManager()
+	if err != nil {
+		log.Fatal("Could not create cache manager: %s.", err.Error())
 	}
 
 	for _, service := range server.Services {
@@ -100,13 +102,6 @@ func New(configFile string) *Server {
 			log.Info("Registered host %s with backend %s.\n", host, s.Type)
 			hosts[host] = backend
 		}
-	}
-
-	server.template = template.Must(template.New("index.html").Parse(`Keytalk gateway error: <b>{ .error }</b>`))
-
-	server.CacheManager, err = backends.NewCacheManager()
-	if err != nil {
-		log.Fatal("Could not create cache manager: %s.", err.Error())
 	}
 
 	return server
@@ -283,7 +278,13 @@ func (s *Server) handle(conn net.Conn) {
 		commonName = s
 	}
 
-	t, err := backend.NewSession(commonName)
+	parts := strings.Split(commonName, "\\")
+	if len(parts) != 2 {
+		err = fmt.Errorf("Invalid subject name format %s", commonName)
+		return
+	}
+
+	t, err := backend.NewSession(parts[1])
 	if err != nil {
 		return
 	}
@@ -299,7 +300,7 @@ func (s *Server) handle(conn net.Conn) {
 			Fragment: req.URL.Fragment,
 		}
 
-		req.Header.Del("Accept-Encoding")
+		// req.Header.Del("Accept-Encoding")
 
 		dump, _ := httputil.DumpRequest(req, false)
 		log.Debug("Request: %s", string(dump))
