@@ -121,7 +121,9 @@ func (cs *ConnectSession) DialTLS(network, address string) (net.Conn, error) {
 		return nil, fmt.Errorf("Error creating openssl ctx: %s", err.Error())
 	}
 
-	conn, err := openssl.Dial("tcp", cs.c.Backend, ctx, openssl.InsecureSkipHostVerification)
+	log.Debug("Connecting to backend: %s", address)
+
+	conn, err := openssl.Dial(network, cs.c.Backend, ctx, openssl.InsecureSkipHostVerification)
 	if err != nil {
 		return nil, fmt.Errorf("Error dialing: %s", err.Error())
 	}
