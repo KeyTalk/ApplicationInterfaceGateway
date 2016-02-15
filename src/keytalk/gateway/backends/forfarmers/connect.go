@@ -42,42 +42,47 @@ func (h *Connect) Host(host string) string {
 }
 
 func (h *Connect) NewSession(email string) (http.RoundTripper, error) {
-	certstr, _ := h.cama.GetBytes(fmt.Sprintf("%s:cert", email))
-	keystr, _ := h.cama.GetBytes(fmt.Sprintf("%s:key", email))
-
-	if len(certstr) == 0 || len(keystr) == 0 {
-		derBytes, priv, err := h.cema.Generate(email)
-		if err != nil {
-			return nil, err
-		}
-
-		cert := &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}
-		certstr = pem.EncodeToMemory(cert)
-		if err := h.cama.Set(fmt.Sprintf("%s:cert", email), cert); err != nil {
-			return nil, err
-		}
-
-		key := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}
-		keystr = pem.EncodeToMemory(key)
-		if err := h.cama.Set(fmt.Sprintf("%s:key", email), key); err != nil {
-			return nil, err
-		}
-	}
-
-	cert, err := openssl.LoadCertificateFromPEM(certstr)
-	if err != nil {
-		return nil, fmt.Errorf("Error loading generated certificate: %s", err.Error())
-	}
-
-	pk, err := openssl.LoadPrivateKeyFromPEM(keystr)
-	if err != nil {
-		return nil, fmt.Errorf("Error loading generated key: %s", err.Error())
-	}
-
 	cs := &ConnectSession{
-		c:    h,
-		cert: cert,
-		pk:   pk,
+		c:       h,
+		backend: h.Backend,
+	}
+
+	if email == "" {
+		cs.backend = "172.20.7.42:443"
+	} else {
+		certstr, _ := h.cama.GetBytes(fmt.Sprintf("%s:cert", email))
+		keystr, _ := h.cama.GetBytes(fmt.Sprintf("%s:key", email))
+
+		if len(certstr) == 0 || len(keystr) == 0 {
+			derBytes, priv, err := h.cema.Generate(email)
+			if err != nil {
+				return nil, err
+			}
+
+			cert := &pem.Block{Type: "CERTIFICATE", Bytes: derBytes}
+			certstr = pem.EncodeToMemory(cert)
+			if err := h.cama.Set(fmt.Sprintf("%s:cert", email), cert); err != nil {
+				return nil, err
+			}
+
+			key := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)}
+			keystr = pem.EncodeToMemory(key)
+			if err := h.cama.Set(fmt.Sprintf("%s:key", email), key); err != nil {
+				return nil, err
+			}
+		}
+
+		cert, err := openssl.LoadCertificateFromPEM(certstr)
+		if err != nil {
+			return nil, fmt.Errorf("Error loading generated certificate: %s", err.Error())
+		}
+		cs.cert = cert
+
+		pk, err := openssl.LoadPrivateKeyFromPEM(keystr)
+		if err != nil {
+			return nil, fmt.Errorf("Error loading generated key: %s", err.Error())
+		}
+		cs.pk = pk
 	}
 
 	cs.RoundTripper = &http.Transport{
@@ -92,9 +97,10 @@ func (h *Connect) NewSession(email string) (http.RoundTripper, error) {
 
 type ConnectSession struct {
 	http.RoundTripper
-	pk   openssl.PrivateKey
-	cert *openssl.Certificate
-	c    *Connect
+	pk      openssl.PrivateKey
+	cert    *openssl.Certificate
+	c       *Connect
+	backend string
 }
 
 func (cs *ConnectSession) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -107,8 +113,14 @@ func (cs *ConnectSession) newCtx() (*openssl.Ctx, error) {
 		return nil, err
 	}
 
-	ctx.UseCertificate(cs.cert)
-	ctx.UsePrivateKey(cs.pk)
+	if cs.cert != nil {
+		ctx.UseCertificate(cs.cert)
+	}
+
+	if cs.pk != nil {
+		ctx.UsePrivateKey(cs.pk)
+	}
+
 	ctx.SetSessionCacheMode(openssl.SessionCacheClient)
 	ctx.SetSessionId([]byte{1})
 	ctx.SetVerifyMode(openssl.VerifyNone)
@@ -123,7 +135,7 @@ func (cs *ConnectSession) DialTLS(network, address string) (net.Conn, error) {
 
 	log.Debug("Connecting to backend: %s", address)
 
-	conn, err := openssl.Dial(network, cs.c.Backend, ctx, openssl.InsecureSkipHostVerification)
+	conn, err := openssl.Dial(network, cs.backend, ctx, openssl.InsecureSkipHostVerification)
 	if err != nil {
 		return nil, fmt.Errorf("Error dialing: %s", err.Error())
 	}
