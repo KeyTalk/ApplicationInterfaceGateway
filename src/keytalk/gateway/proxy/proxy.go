@@ -20,7 +20,6 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/PuerkitoBio/ghost/handlers"
 	"github.com/gorilla/mux"
-	"github.com/kr/pretty"
 	"github.com/spacemonkeygo/openssl"
 
 	logging "github.com/op/go-logging"
@@ -90,7 +89,7 @@ func New(configFile string) *Server {
 
 		creator, ok := Backends[s.Type]
 		if !ok {
-			log.Info("Could not find backend %s.\n", s.Type)
+			log.Error("Could not find backend %s.\n", s.Type)
 			continue
 		}
 
@@ -100,7 +99,7 @@ func New(configFile string) *Server {
 		}
 
 		for _, host := range s.Hosts {
-			log.Info("Registered host %s with backend %s.\n", host, s.Type)
+			log.Error("Registered host %s with backend %s.\n", host, s.Type)
 			hosts[host] = backend
 		}
 	}
@@ -150,7 +149,7 @@ func (s *Server) Serve() {
 	// ctx.SetVerifyMode(openssl.VerifyPeer /*| openssl.VerifyFailIfNoPeerCert*/)
 
 	ctx.SetVerify(openssl.VerifyPeer|openssl.VerifyClientOnce, func(ok bool, store *openssl.CertificateStoreCtx) bool {
-		pretty.Print("VerifyCallback", store)
+		// pretty.Print("VerifyCallback", store)
 		return true
 	})
 
@@ -348,7 +347,7 @@ func (s *Server) handle(conn net.Conn) {
 		// resp.Body = NewChangeStream(resp.Body)
 
 		dump, _ = httputil.DumpResponse(resp, false)
-		log.Debug("Request: %s", string(dump))
+		log.Debug("Response: %s", string(dump))
 
 		if err = resp.Write(tlscon); err != nil {
 			return
