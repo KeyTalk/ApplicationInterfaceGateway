@@ -50,8 +50,9 @@ func (h *Connect) NewSession(email string) (http.RoundTripper, error) {
 	log.Debug("New sessions for %s", email)
 
 	if email == "" {
-		cs.backend = "172.20.7.42:443"
 	} else {
+		cs.backend = "172.20.7.42:443"
+
 		certstr, _ := h.cama.GetBytes(fmt.Sprintf("%s:cert", email))
 		keystr, _ := h.cama.GetBytes(fmt.Sprintf("%s:key", email))
 
