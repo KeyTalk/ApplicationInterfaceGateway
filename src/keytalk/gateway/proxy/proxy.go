@@ -329,12 +329,11 @@ func (s *Server) handle(conn net.Conn) {
 
 		// req.Header.Del("Accept-Encoding")
 
-		dump, _ := httputil.DumpRequest(req, false)
+		dump, _ := httputil.DumpRequest(req, true)
 		log.Debug("Request: %s", string(dump))
 
 		var resp *http.Response
-		if resp, err = t.RoundTrip(req); err == io.EOF {
-		} else if err != nil {
+		if resp, err = t.RoundTrip(req); err != nil {
 			err = fmt.Errorf("Error occured during roundtrip: %s", err.Error())
 			return
 		}
