@@ -47,6 +47,8 @@ func (h *Connect) NewSession(email string) (http.RoundTripper, error) {
 		backend: h.Backend,
 	}
 
+	log.Debug("New sessions for %s", email)
+
 	if email == "" {
 		cs.backend = "172.20.7.42:443"
 	} else {
@@ -133,7 +135,7 @@ func (cs *ConnectSession) DialTLS(network, address string) (net.Conn, error) {
 		return nil, fmt.Errorf("Error creating openssl ctx: %s", err.Error())
 	}
 
-	log.Debug("Connecting to backend: %s", address)
+	log.Debug("Connecting to backend: %s %s", address, cs.backend)
 
 	conn, err := openssl.Dial(network, cs.backend, ctx, openssl.InsecureSkipHostVerification)
 	if err != nil {
