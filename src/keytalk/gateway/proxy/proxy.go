@@ -75,7 +75,7 @@ func New(configFile string) *Server {
 		panic(err)
 	}
 
-	server.template = template.Must(template.New("index.html").Parse(`Keytalk gateway error: <b>{{ .error }}</b>`))
+	server.template = template.Must(template.New("index.html").Parse(`Keytalk gateway error <br/><b>{{ .error }}</b>`))
 
 	server.CacheManager, err = backends.NewCacheManager()
 	if err != nil {
@@ -333,7 +333,8 @@ func (s *Server) handle(conn net.Conn) {
 		log.Debug("Request: %s", string(dump))
 
 		var resp *http.Response
-		if resp, err = t.RoundTrip(req); err != nil {
+		if resp, err = t.RoundTrip(req); err == io.EOF {
+		} else if err != nil {
 			err = fmt.Errorf("Error occured during roundtrip: %s", err.Error())
 			return
 		}
