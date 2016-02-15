@@ -329,7 +329,7 @@ func (s *Server) handle(conn net.Conn) {
 		// req.Header.Del("Accept-Encoding")
 
 		dump, _ := httputil.DumpRequest(req, true)
-		log.Debug("Request: %s", string(dump))
+		log.Debug("Request: %s %s", req.URL.String(), string(dump))
 
 		var resp *http.Response
 		if resp, err = t.RoundTrip(req); err != nil {
