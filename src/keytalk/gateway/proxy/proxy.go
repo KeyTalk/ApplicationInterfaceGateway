@@ -20,6 +20,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/PuerkitoBio/ghost/handlers"
 	"github.com/gorilla/mux"
+	"github.com/kr/pretty"
 	"github.com/spacemonkeygo/openssl"
 
 	logging "github.com/op/go-logging"
@@ -149,8 +150,8 @@ func (s *Server) Serve() {
 	// ctx.SetVerifyMode(openssl.VerifyPeer /*| openssl.VerifyFailIfNoPeerCert*/)
 
 	ctx.SetVerify(openssl.VerifyPeer|openssl.VerifyClientOnce, func(ok bool, store *openssl.CertificateStoreCtx) bool {
-		// pretty.Print("VerifyCallback", store)
-		return false
+		pretty.Print("VerifyCallback", store)
+		return true
 	})
 
 	listener, err := openssl.Listen("tcp4", s.TLSListenerString, ctx)
