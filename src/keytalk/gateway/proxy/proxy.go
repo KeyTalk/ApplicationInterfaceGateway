@@ -348,6 +348,8 @@ func (s *Server) handle(conn net.Conn) {
 		// resp.Body = NewChangeStream(resp.Body)
 
 		dump, _ = httputil.DumpResponse(resp, false)
+		log.Debug("Request: %s", string(dump))
+
 		if err = resp.Write(tlscon); err != nil {
 			return
 		}
