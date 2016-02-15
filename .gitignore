@@ -11,6 +11,7 @@ requests/
 serial.txt*
 database.txt*
 config.toml
-pkg/
+/pkg/
+/vendor/pkg/
 logs/
 includes/

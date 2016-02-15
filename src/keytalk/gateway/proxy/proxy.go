@@ -156,10 +156,11 @@ func (s *Server) Serve() {
 	})
 
 	listener, err := openssl.Listen("tcp4", s.TLSListenerString, ctx)
-	s.listener = listener
 	if err != nil {
 		log.Fatalf("server: listen: %s", err)
 	}
+
+	s.listener = listener
 
 	log.Info("Keytalk Gateway: started\n")
 	s.listenAndServe()
