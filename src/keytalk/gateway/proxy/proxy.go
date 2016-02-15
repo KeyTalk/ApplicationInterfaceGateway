@@ -17,8 +17,6 @@ import (
 
 	"keytalk/gateway/backends"
 
-	"github.com/kr/pretty"
-
 	"github.com/BurntSushi/toml"
 	"github.com/PuerkitoBio/ghost/handlers"
 	"github.com/gorilla/mux"
@@ -151,7 +149,7 @@ func (s *Server) Serve() {
 	// ctx.SetVerifyMode(openssl.VerifyPeer /*| openssl.VerifyFailIfNoPeerCert*/)
 
 	ctx.SetVerify(openssl.VerifyPeer|openssl.VerifyClientOnce, func(ok bool, store *openssl.CertificateStoreCtx) bool {
-		pretty.Print("VerifyCallback", store)
+		// pretty.Print("VerifyCallback", store)
 		return false
 	})
 
