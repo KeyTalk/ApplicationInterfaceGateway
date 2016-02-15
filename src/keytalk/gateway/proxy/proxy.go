@@ -354,7 +354,7 @@ func (s *Server) handle(conn net.Conn) {
 		}
 
 		// TODO: add apache compatible format
-		log.Info("%s %s %s %d %s %s", req.Host, req.URL.String(), req.Header.Get("Content-Type"), resp.StatusCode, subjectName, req.Header.Get("Referer"))
+		log.Info("%s %s %s %s %d %s", req.RemoteAddr(), subjectName, req.URL.String(), req.Header.Get("Content-Type"), resp.StatusCode, req.Header.Get("Referer"))
 
 		// implement Close / non keep alives as well
 		// for keep alive, next request
