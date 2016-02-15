@@ -17,6 +17,8 @@ import (
 
 	"keytalk/gateway/backends"
 
+	"github.com/kr/pretty"
+
 	"github.com/BurntSushi/toml"
 	"github.com/PuerkitoBio/ghost/handlers"
 	"github.com/gorilla/mux"
@@ -127,9 +129,31 @@ func (s *Server) Serve() {
 		log.Fatal("SetClientCA", err.Error())
 	}
 
+	ctx.SetTLSExtServernameCallback(func(ssl *openssl.SSL) openssl.SSLTLSExtErr {
+		//	pretty.Print("TLSExtServernameCallback", ssl)
+		/*
+			http://stackoverflow.com/questions/5113333/how-to-implement-server-name-indication-sni
+
+			Set up an additional SSL_CTX() for each different certificate;
+			Add a servername callback to each SSL_CTX() using SSL_CTX_set_tlsext_servername_callback();
+			In the callback, retrieve the client-supplied servername with SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name). Figure out the right SSL_CTX to go with that host name, then switch the SSL object to that SSL_CTX with SSL_set_SSL_CTX().
+			The s_client.c and s_server.c files in the apps/ directory of the OpenSSL source distribution implement this functionality, so they're a good resource to see how it should be done.
+
+			const char* servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+			printf("ServerName: %s\n", servername);
+		*/
+		log.Debug("SNI: %s", ssl.GetServername())
+		return openssl.SSLTLSExtErrOK
+	})
+
 	ctx.SetSessionCacheMode(openssl.SessionCacheServer)
 	ctx.SetSessionId([]byte{1})
-	ctx.SetVerifyMode(openssl.VerifyPeer | openssl.VerifyFailIfNoPeerCert)
+	// ctx.SetVerifyMode(openssl.VerifyPeer /*| openssl.VerifyFailIfNoPeerCert*/)
+
+	ctx.SetVerify(openssl.VerifyPeer|openssl.VerifyClientOnce, func(ok bool, store *openssl.CertificateStoreCtx) bool {
+		pretty.Print("VerifyCallback", store)
+		return false
+	})
 
 	listener, err := openssl.Listen("tcp4", s.TLSListenerString, ctx)
 	s.listener = listener
@@ -216,10 +240,9 @@ func (s *Server) handle(conn net.Conn) {
 		log.Error("Error while handling request: ", err.Error())
 
 		var buff bytes.Buffer
-		err = s.template.Execute(&buff, map[string]interface{}{
+		if err = s.template.Execute(&buff, map[string]interface{}{
 			"error": err.Error(),
-		})
-		if err != nil {
+		}); err != nil {
 			log.Error("Could not write error response: ", err.Error())
 			return
 		}
@@ -228,11 +251,16 @@ func (s *Server) handle(conn net.Conn) {
 		resp := &http.Response{
 			Header:     make(http.Header),
 			Request:    req,
+			Proto:      "HTTP/1.0",
+			ProtoMajor: 1,
+			ProtoMinor: 0,
 			StatusCode: http.StatusUnauthorized,
 		}
 
 		resp.Header.Set("Server", "Keytalk Gateway")
+		resp.Header.Set("Content-Type", "text/html")
 		resp.Body = ioutil.NopCloser(&buff)
+		// defer resp.Body.Close()
 
 		resp.Write(tlscon)
 	}()
@@ -241,7 +269,7 @@ func (s *Server) handle(conn net.Conn) {
 		err = nil
 		return
 	} else if err != nil {
-		log.Error("server: handshake failed: %s. Continuing anonymously.\n", err.Error())
+		// log.Error("server: handshake failed: %s. Continuing anonymously.\n", err.Error())
 		return
 	}
 
@@ -260,31 +288,30 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
+	subjectName := ""
+
 	cert, err := tlscon.PeerCertificate()
-	if err != nil {
-		return
-	} else if cert == nil {
-		// err
-		return
+	if err == nil {
+		subject, err := cert.GetSubjectName()
+		if err != nil {
+			return
+		}
+
+		commonName := ""
+		if s, ok := subject.GetEntry(openssl.NID_commonName); ok {
+			commonName = s
+		}
+
+		parts := strings.Split(commonName, "\\")
+		if len(parts) != 2 {
+			err = fmt.Errorf("Invalid subject name format %s", commonName)
+			return
+		}
+
+		subjectName = parts[1]
 	}
 
-	subject, err := cert.GetSubjectName()
-	if err != nil {
-		return
-	}
-
-	commonName := ""
-	if s, ok := subject.GetEntry(openssl.NID_commonName); ok {
-		commonName = s
-	}
-
-	parts := strings.Split(commonName, "\\")
-	if len(parts) != 2 {
-		err = fmt.Errorf("Invalid subject name format %s", commonName)
-		return
-	}
-
-	t, err := backend.NewSession(parts[1])
+	t, err := backend.NewSession(subjectName)
 	if err != nil {
 		return
 	}
@@ -326,15 +353,13 @@ func (s *Server) handle(conn net.Conn) {
 		}
 
 		// TODO: add apache compatible format
-		log.Info("%s %s %s %d %s %s", req.Host, req.URL.String(), req.Header.Get("Content-Type"), resp.StatusCode, commonName, req.Header.Get("Referer"))
+		log.Info("%s %s %s %d %s %s", req.Host, req.URL.String(), req.Header.Get("Content-Type"), resp.StatusCode, subjectName, req.Header.Get("Referer"))
 
 		// implement Close / non keep alives as well
 		// for keep alive, next request
 		req, err = http.ReadRequest(reader)
-		if err == io.EOF {
-			return
-		} else if err != nil {
-			return
+		if err != nil {
+			break
 		}
 	}
 }

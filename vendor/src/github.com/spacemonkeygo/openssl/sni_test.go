@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// +build cgo
-
 package openssl
 
-// #cgo pkg-config: libssl libcrypto
-// #cgo windows CFLAGS: -DWIN32_LEAN_AND_MEAN
-// #cgo darwin CFLAGS: -Wno-deprecated-declarations
-import "C"
+import "fmt"
+
+// We can implemant SNI rfc6066 (http://tools.ietf.org/html/rfc6066) on the server side using foolowing callback.
+// You should implement context storage (tlsCtxStorage) by your self.
+func ExampleSetTLSExtServernameCallback() {
+	fmt.Println("Hello")
+}

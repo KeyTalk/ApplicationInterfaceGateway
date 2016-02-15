@@ -100,8 +100,9 @@ func marshalSANs(otherNames []otherName, dnsNames, emailAddresses []string, ipAd
 }
 
 func (cm *CertificateManager) Generate(email string) ([]byte, *rsa.PrivateKey, error) {
-	notBefore := time.Now()
-	notAfter := notBefore.Add(12 * time.Hour)
+	now := time.Now()
+	notBefore := now.Add(-1 * time.Hour)
+	notAfter := now.Add(12 * time.Hour)
 
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
