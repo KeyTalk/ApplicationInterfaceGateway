@@ -74,6 +74,7 @@ func New(configFile string) *Server {
 		panic(err)
 	}
 
+	// todo: index from file
 	server.template = template.Must(template.New("index.html").Parse(`Keytalk gateway error <br/><b>{{ .error }}</b>`))
 
 	server.CacheManager, err = backends.NewCacheManager()
@@ -173,17 +174,15 @@ func (s *Server) Serve() {
 			const char* servername = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
 			printf("ServerName: %s\n", servername);
 		*/
-		log.Debug("SNI: %s", ssl.GetServername())
 		return openssl.SSLTLSExtErrOK
 	})
 
 	ctx.SetSessionCacheMode(openssl.SessionCacheServer)
 	ctx.SetSessionId([]byte{1})
-	// ctx.SetVerifyMode(openssl.VerifyPeer /*| openssl.VerifyFailIfNoPeerCert*/)
-
 	ctx.SetVerify(openssl.VerifyPeer|openssl.VerifyClientOnce, func(ok bool, store *openssl.CertificateStoreCtx) bool {
-		// pretty.Print("VerifyCallback", store)
-		return true
+		log.Debug("VerifyCallback: %s", ok)
+		///current_cert
+		return ok
 	})
 
 	listener, err := openssl.Listen("tcp4", s.TLSListenerString, ctx)

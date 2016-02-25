@@ -1,10 +1,16 @@
 package forfarmers
 
 import (
+	"bytes"
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
 	"keytalk/gateway/backends"
 	_ "log"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"time"
 
 	proxy "keytalk/gateway/proxy"
@@ -17,7 +23,11 @@ import (
 var log = logging.MustGetLogger("ldap")
 
 var _ = proxy.Register("ldap", func(server *proxy.Server) backends.Backend {
-	c := &LdapBackend{}
+	c := &LdapBackend{
+		cema:     server.CertificateManager,
+		cama:     server.CacheManager,
+		sessions: map[string]*LdapBackendSession{},
+	}
 
 	s := ldap.NewServer()
 	s.EnforceLDAP = true
@@ -26,24 +36,96 @@ var _ = proxy.Register("ldap", func(server *proxy.Server) backends.Backend {
 	s.SearchFunc("", c)
 	s.CloseFunc("", c)
 
-	// if err := s.ListenAndServe("localhost:389"); err != nil {
-
 	log.Debug("LDAP server started...")
 
+	// todo config
 	go s.ListenAndServe("127.0.0.1:8389")
 	return c
 })
 
+const authUrl = "https://127.0.0.1:8081/module/webmail.fe"
+
 type LdapBackend struct {
-	Backend string            `toml:"backend"`
-	Hosts   []string          `toml:"hosts"`
-	Mapping map[string]string `toml:"mapping"`
-	ldap    *ldap.Conn
+	Backend  string            `toml:"backend"`
+	Hosts    []string          `toml:"hosts"`
+	Mapping  map[string]string `toml:"mapping"`
+	ldap     *ldap.Conn
+	sessions map[string]*LdapBackendSession
+	cema     *backends.CertificateManager
+	cama     *backends.CacheManager
+}
+
+func (cs *LdapBackendSession) Authenticate(email string) (*http.Response, error) {
+	if cs.cookieJar != nil {
+		return nil, nil
+	}
+
+	v := url.Values{}
+	v.Set("name", email)
+	//v.Set("password", cs.h.Password(email))
+	v.Set("password", "Bej1a3OM")
+	v.Set("CutomizeLogin", "Sign In")
+	v.Set("reqAction", "1")
+	v.Set("reqObject", "WMLogin")
+
+	req, err := http.NewRequest("POST", authUrl, bytes.NewBufferString(v.Encode()))
+	if err != nil {
+		return nil, err
+	}
+
+	cs.cookieJar, _ = cookiejar.New(nil)
+
+	resp, err := cs.RoundTripper.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return resp, backends.ErrAuthorizationFailed
+	}
+
+	if rc := resp.Cookies(); len(rc) > 0 {
+		log.Info("Setting cookie (%s): %s", req.URL, rc)
+		cs.cookieJar.SetCookies(req.URL, rc)
+	}
+
+	resp.StatusCode = 302
+	resp.Header.Set("Location", fmt.Sprintf("/mail/FEWebmail.html?isCustomLogin=true&remote_user=%s", email))
+	return resp, nil
 }
 
 func (cs *LdapBackendSession) RoundTrip(r *http.Request) (*http.Response, error) {
-	return cs.RoundTripper.RoundTrip(r)
+	if cs.email == "" {
+		// for unauthenticated users
+		return cs.RoundTripper.RoundTrip(r)
+	}
 
+	if r.URL.Path == "/mail/WebmailLogin.html" {
+		cs.cookieJar = nil
+	}
+
+	if resp, err := cs.Authenticate(cs.email); err != nil {
+		return resp, err
+	} else if resp != nil {
+		return resp, err
+	}
+
+	for _, cookie := range cs.cookieJar.Cookies(r.URL) {
+		r.AddCookie(cookie)
+	}
+
+	resp, err := cs.RoundTripper.RoundTrip(r)
+	if err != nil {
+		return resp, err
+	}
+
+	if rc := resp.Cookies(); len(rc) > 0 {
+		cs.cookieJar.SetCookies(r.URL, rc)
+	}
+
+	return resp, err
 }
 
 func (cs *LdapBackendSession) DialTLS(network, address string) (net.Conn, error) {
@@ -52,22 +134,6 @@ func (cs *LdapBackendSession) DialTLS(network, address string) (net.Conn, error)
 		log.Error("Error creating openssl ctx: %s", err.Error())
 		return nil, err
 	}
-
-	cert99, err := openssl.LoadCertificateFromPEM(cs.certstr)
-	if err != nil {
-		log.Error("Error creating openssl ctx: %s", err.Error())
-		return nil, err
-	}
-
-	ctx.UseCertificate(cert99)
-
-	pk99, err := openssl.LoadPrivateKeyFromPEM(cs.keystr)
-	if err != nil {
-		log.Error("Error creating openssl ctx: %s", err.Error())
-		return nil, err
-	}
-
-	ctx.UsePrivateKey(pk99)
 
 	ctx.SetSessionCacheMode(openssl.SessionCacheClient)
 
@@ -102,10 +168,9 @@ func (cs *LdapBackendSession) DialTLS(network, address string) (net.Conn, error)
 
 type LdapBackendSession struct {
 	http.RoundTripper
-	email   string
-	certstr []byte
-	keystr  []byte
-	c       *LdapBackend
+	email     string
+	c         *LdapBackend
+	cookieJar http.CookieJar
 }
 
 func (h *LdapBackend) Host(host string) string {
@@ -116,7 +181,12 @@ func (h *LdapBackend) Host(host string) string {
 }
 
 func (h *LdapBackend) NewSession(email string) (http.RoundTripper, error) {
-	// check certificate
+	email = "innotest@forfarmers.eu"
+
+	if cs, ok := h.sessions[email]; ok {
+		return cs, nil
+	}
+
 	cs := &LdapBackendSession{
 		email: email,
 		c:     h,
@@ -129,7 +199,19 @@ func (h *LdapBackend) NewSession(email string) (http.RoundTripper, error) {
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
 
+	// todo: add sync
+	h.sessions[email] = cs
 	return cs, nil
+}
+
+func (b *LdapBackend) Password(email string) string {
+	h := sha1.New()
+
+	// todo password in config
+	h.Write([]byte(fmt.Sprintf("%s%s", email, "SUPERGEHEIM")))
+
+	bs := h.Sum(nil)
+	return hex.EncodeToString(bs)
 }
 
 func (b *LdapBackend) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultCode ldap.LDAPResultCode, err error) {
@@ -148,6 +230,7 @@ func (b *LdapBackend) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultCo
 		b.ldap = l
 
 	*/
+	// check bindSimplePw == b.Password(email)
 	//return ldap.LDAPResultInvalidCredentials, nil
 	return ldap.LDAPResultSuccess, nil
 }
