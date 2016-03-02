@@ -41,7 +41,7 @@ var _ = proxy.Register("ldap", func(server *proxy.Server) backends.Backend {
 
 	// todo config
 	// 192.168.102.152
-	go s.ListenAndServe("0.0.0.0:389")
+	go s.ListenAndServe("192.168.102.152:389")
 	return c
 })
 
