@@ -222,10 +222,12 @@ func (b *LdapBackend) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultCo
 	// l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", "172.20.1.20", 389))
 	l, err := ldap.DialTLS("tcp", fmt.Sprintf("%s:%d", "172.20.1.20", 636), nil)
 	if err != nil {
+		fmt.Printf("%#v\n", err)
 		return ldap.LDAPResultOperationsError, err
 	}
 
 	if err := l.Bind(bindDN, bindSimplePw); err != nil {
+		fmt.Printf("%#v\n", err)
 		return ldap.LDAPResultOperationsError, err
 	}
 
@@ -246,6 +248,7 @@ func (b *LdapBackend) Search(boundDN string, searchReq ldap.SearchRequest, conn 
 		nil)
 	sr, err := b.ldap.Search(search)
 	if err != nil {
+		fmt.Printf("%#v\n", err)
 		return ldap.ServerSearchResult{}, err
 	}
 
