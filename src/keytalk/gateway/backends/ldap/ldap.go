@@ -40,7 +40,8 @@ var _ = proxy.Register("ldap", func(server *proxy.Server) backends.Backend {
 	log.Debug("LDAP server started...")
 
 	// todo config
-	go s.ListenAndServe("127.0.0.1:8389")
+	// 192.168.102.152
+	go s.ListenAndServe("0.0.0.0:389")
 	return c
 })
 
