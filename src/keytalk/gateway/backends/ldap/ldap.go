@@ -15,6 +15,7 @@ import (
 
 	proxy "keytalk/gateway/proxy"
 
+	"github.com/kr/pretty"
 	"github.com/nmcclain/ldap"
 	logging "github.com/op/go-logging"
 	"github.com/spacemonkeygo/openssl"
@@ -216,20 +217,19 @@ func (b *LdapBackend) Password(email string) string {
 
 func (b *LdapBackend) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultCode ldap.LDAPResultCode, err error) {
 	log.Debug("Bind %s %s", bindDN, bindSimplePw)
-	/*
-		//l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", h.ldapServer, h.ldapPort))
-		l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", "ldap.forumsys.com", 389))
-		if err != nil {
-			return ldap.LDAPResultOperationsError, err
-		}
+	//l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", h.ldapServer, h.ldapPort))
+	// l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", "172.20.1.20", 389))
+	l, err := ldap.DialTLS("tcp", fmt.Sprintf("%s:%d", "172.20.1.20", 636))
+	if err != nil {
+		return ldap.LDAPResultOperationsError, err
+	}
 
-		if err := l.Bind(bindDN, bindSimplePw); err != nil {
-			return ldap.LDAPResultOperationsError, err
-		}
+	if err := l.Bind(bindDN, bindSimplePw); err != nil {
+		return ldap.LDAPResultOperationsError, err
+	}
 
-		b.ldap = l
+	b.ldap = l
 
-	*/
 	// check bindSimplePw == b.Password(email)
 	//return ldap.LDAPResultInvalidCredentials, nil
 	return ldap.LDAPResultSuccess, nil
@@ -237,43 +237,43 @@ func (b *LdapBackend) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultCo
 
 func (b *LdapBackend) Search(boundDN string, searchReq ldap.SearchRequest, conn net.Conn) (result ldap.ServerSearchResult, err error) {
 	log.Debug("Search %s %#v", boundDN, searchReq)
+	search := ldap.NewSearchRequest(
+		searchReq.BaseDN,
+		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+		searchReq.Filter,
+		searchReq.Attributes,
+		nil)
+	sr, err := b.ldap.Search(search)
+	if err != nil {
+		return ldap.ServerSearchResult{}, err
+	}
+
+	log.Debug("P: Search OK: %s -> num of entries = %d\n", search.Filter, len(sr.Entries))
+	log.Debug("%#v", ldap.ServerSearchResult{sr.Entries, []string{}, []ldap.Control{}, ldap.LDAPResultSuccess})
+	pretty.Print(ldap.ServerSearchResult{sr.Entries, []string{}, []ldap.Control{}, ldap.LDAPResultSuccess})
+	return ldap.ServerSearchResult{sr.Entries, []string{}, []ldap.Control{}, ldap.LDAPResultSuccess}, nil
+
 	/*
-		// 	return ldap.ServerSearchResult{ResultCode: ldap.LDAPResultOperationsError}, nil
-		search := ldap.NewSearchRequest(
-			searchReq.BaseDN,
-			ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
-			searchReq.Filter,
-			searchReq.Attributes,
-			nil)
-		sr, err := b.ldap.Search(search)
-		if err != nil {
-			return ldap.ServerSearchResult{}, err
-		}
-
-		log.Debug("P: Search OK: %s -> num of entries = %d\n", search.Filter, len(sr.Entries))
-		log.Debug("%#v", ldap.ServerSearchResult{sr.Entries, []string{}, []ldap.Control{}, ldap.LDAPResultSuccess})
-		pretty.Print(ldap.ServerSearchResult{sr.Entries, []string{}, []ldap.Control{}, ldap.LDAPResultSuccess})
-	*/
-
-	return ldap.ServerSearchResult{
-		Entries: []*ldap.Entry{
-			&ldap.Entry{
-				DN: "uid=blabla,dc=example,dc=com",
-				Attributes: []*ldap.EntryAttribute{
-					&ldap.EntryAttribute{
-						Name:   "uid",
-						Values: []string{"blabla"},
+		return ldap.ServerSearchResult{
+			Entries: []*ldap.Entry{
+				&ldap.Entry{
+					DN: "uid=blabla,dc=example,dc=com",
+					Attributes: []*ldap.EntryAttribute{
+						&ldap.EntryAttribute{
+							Name:   "uid",
+							Values: []string{"blabla"},
+						},
 					},
 				},
 			},
-		},
-		Referrals:  []string{},
-		Controls:   []ldap.Control{},
-		ResultCode: ldap.LDAPResultSuccess,
-	}, nil
+			Referrals:  []string{},
+			Controls:   []ldap.Control{},
+			ResultCode: ldap.LDAPResultSuccess,
+		}, nil*/
 	// return ldap.ServerSearchResult{sr.Entries, []string{}, []ldap.Control{}, ldap.LDAPResultSuccess}, nil
 }
 
 func (b *LdapBackend) Close(boundDn string, conn net.Conn) error {
+	b.ldap.Close()
 	return nil
 }
