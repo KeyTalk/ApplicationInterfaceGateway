@@ -3,6 +3,7 @@ package forfarmers
 import (
 	"bytes"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"keytalk/gateway/backends"
@@ -220,7 +221,12 @@ func (b *LdapBackend) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultCo
 	log.Debug("Bind %s %s", bindDN, bindSimplePw)
 	//l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", h.ldapServer, h.ldapPort))
 	// l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", "172.20.1.20", 389))
-	l, err := ldap.DialTLS("tcp4", fmt.Sprintf("%s:%d", "172.20.1.20", 636), nil)
+
+	tlc := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+
+	l, err := ldap.DialTLS("tcp4", fmt.Sprintf("%s:%d", "172.20.1.20", 636), tlc)
 	if err != nil {
 		fmt.Printf("%#v\n", err)
 		return ldap.LDAPResultOperationsError, err
