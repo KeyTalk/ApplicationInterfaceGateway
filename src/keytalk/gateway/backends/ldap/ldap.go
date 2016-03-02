@@ -143,7 +143,7 @@ func (cs *LdapBackendSession) DialTLS(network, address string) (net.Conn, error)
 
 	ctx.SetVerifyMode(openssl.VerifyNone)
 
-	conn, err := openssl.Dial("tcp", cs.c.Backend, ctx, openssl.InsecureSkipHostVerification)
+	conn, err := openssl.Dial("tcp4", cs.c.Backend, ctx, openssl.InsecureSkipHostVerification)
 	if err != nil {
 		log.Error("Error dialing: %s", err.Error())
 		return nil, err
@@ -220,7 +220,7 @@ func (b *LdapBackend) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultCo
 	log.Debug("Bind %s %s", bindDN, bindSimplePw)
 	//l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", h.ldapServer, h.ldapPort))
 	// l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", "172.20.1.20", 389))
-	l, err := ldap.DialTLS("tcp", fmt.Sprintf("%s:%d", "172.20.1.20", 636), nil)
+	l, err := ldap.DialTLS("tcp4", fmt.Sprintf("%s:%d", "172.20.1.20", 636), nil)
 	if err != nil {
 		fmt.Printf("%#v\n", err)
 		return ldap.LDAPResultOperationsError, err
