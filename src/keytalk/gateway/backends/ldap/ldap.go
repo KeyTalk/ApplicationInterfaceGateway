@@ -3,6 +3,7 @@ package forfarmers
 import (
 	"bytes"
 	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
@@ -12,17 +13,117 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"sync"
 	"time"
 
 	proxy "keytalk/gateway/proxy"
 
-	"github.com/kr/pretty"
 	"github.com/nmcclain/ldap"
 	logging "github.com/op/go-logging"
 	"github.com/spacemonkeygo/openssl"
 )
 
 var log = logging.MustGetLogger("ldap")
+
+type ldapHandler struct {
+	sessions   map[string]session
+	lock       sync.Mutex
+	ldapServer string
+	ldapPort   int
+}
+
+///////////// Run a simple LDAP proxy
+
+/////////////
+type session struct {
+	id   string
+	c    net.Conn
+	ldap *ldap.Conn
+}
+
+func (h ldapHandler) getSession(conn net.Conn) (session, error) {
+	id := connID(conn)
+	h.lock.Lock()
+	s, ok := h.sessions[id] // use server connection if it exists
+	h.lock.Unlock()
+
+	if !ok { // open a new server connection if not
+		tlc := &tls.Config{
+			InsecureSkipVerify: true,
+		}
+
+		l, err := ldap.DialTLS("tcp4", fmt.Sprintf("%s:%d", "172.20.1.20", 636), tlc)
+		// l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", h.ldapServer, h.ldapPort))
+		if err != nil {
+			return session{}, err
+		}
+		s = session{id: id, c: conn, ldap: l}
+		h.lock.Lock()
+		h.sessions[s.id] = s
+		h.lock.Unlock()
+	}
+	return s, nil
+}
+
+/////////////
+func (h ldapHandler) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultCode ldap.LDAPResultCode, err error) {
+	s, err := h.getSession(conn)
+	log.Debug("Bind %s %s", bindDN, bindSimplePw)
+	if err != nil {
+		log.Error("Bind: %s", err.Error())
+		return ldap.LDAPResultOperationsError, err
+	}
+
+	if err := s.ldap.Bind(bindDN, bindSimplePw); err != nil {
+		log.Error("Bind: %s", err.Error())
+		return ldap.LDAPResultOperationsError, err
+	}
+
+	return ldap.LDAPResultSuccess, nil
+}
+
+/////////////
+func (h ldapHandler) Search(boundDN string, searchReq ldap.SearchRequest, conn net.Conn) (ldap.ServerSearchResult, error) {
+	s, err := h.getSession(conn)
+	if err != nil {
+		return ldap.ServerSearchResult{ResultCode: ldap.LDAPResultOperationsError}, nil
+	}
+
+	log.Debug("Search %s %v", boundDN, searchReq)
+
+	search := ldap.NewSearchRequest(
+		searchReq.BaseDN,
+		ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+		searchReq.Filter,
+		searchReq.Attributes,
+		nil)
+
+	sr, err := s.ldap.Search(search)
+	if err != nil {
+		log.Error("Bind: %s", err.Error())
+		return ldap.ServerSearchResult{}, err
+	}
+
+	//log.Printf("P: Search OK: %s -> num of entries = %d\n", search.Filter, len(sr.Entries))
+	return ldap.ServerSearchResult{sr.Entries, []string{}, []ldap.Control{}, ldap.LDAPResultSuccess}, nil
+}
+
+func (h ldapHandler) Close(boundDn string, conn net.Conn) error {
+	log.Debug("Close: %s", boundDn)
+
+	conn.Close() // close connection to the server when then client is closed
+	h.lock.Lock()
+	defer h.lock.Unlock()
+	delete(h.sessions, connID(conn))
+	return nil
+}
+
+func connID(conn net.Conn) string {
+	h := sha256.New()
+	h.Write([]byte(conn.LocalAddr().String() + conn.RemoteAddr().String()))
+	sha := fmt.Sprintf("% x", h.Sum(nil))
+	return string(sha)
+}
 
 var _ = proxy.Register("ldap", func(server *proxy.Server) backends.Backend {
 	c := &LdapBackend{
@@ -31,28 +132,52 @@ var _ = proxy.Register("ldap", func(server *proxy.Server) backends.Backend {
 		sessions: map[string]*LdapBackendSession{},
 	}
 
+	/*
+		s := ldap.NewServer()
+		s.EnforceLDAP = true
+
+		s.BindFunc("", c)
+		s.SearchFunc("", c)
+		s.CloseFunc("", c)
+
+	*/
+	/*
+		log.Debug("LDAP server started...")
+
+		// todo config
+		// 192.168.102.152
+		go s.ListenAndServe("192.168.102.152:389")
+	*/
+	// host, port, err := net.SplitHostPort((
 	s := ldap.NewServer()
-	s.EnforceLDAP = true
 
-	s.BindFunc("", c)
-	s.SearchFunc("", c)
-	s.CloseFunc("", c)
+	handler := ldapHandler{
+		sessions:   make(map[string]session),
+		ldapServer: "192.168.102.152",
+		ldapPort:   389,
+	}
+	s.BindFunc("", handler)
+	s.SearchFunc("", handler)
+	s.CloseFunc("", handler)
 
-	log.Debug("LDAP server started...")
-
-	// todo config
-	// 192.168.102.152
-	go s.ListenAndServe("192.168.102.152:389")
+	go func() {
+		// start the server
+		if err := s.ListenAndServe("192.168.102.152:389"); err != nil {
+			log.Fatal("LDAP Server Failed: %s", err.Error())
+		}
+	}()
 	return c
 })
 
 const authUrl = "https://127.0.0.1:8081/module/webmail.fe"
 
 type LdapBackend struct {
-	Backend  string            `toml:"backend"`
-	Hosts    []string          `toml:"hosts"`
-	Mapping  map[string]string `toml:"mapping"`
-	ldap     *ldap.Conn
+	Backend    string            `toml:"backend"`
+	Hosts      []string          `toml:"hosts"`
+	Mapping    map[string]string `toml:"mapping"`
+	LdapServer string            `toml:"ldap_server"`
+
+	//dd	ldap     *ldap.Conn
 	sessions map[string]*LdapBackendSession
 	cema     *backends.CertificateManager
 	cama     *backends.CacheManager
@@ -217,6 +342,8 @@ func (b *LdapBackend) Password(email string) string {
 	return hex.EncodeToString(bs)
 }
 
+/*
+
 func (b *LdapBackend) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultCode ldap.LDAPResultCode, err error) {
 	log.Debug("Bind %s %s", bindDN, bindSimplePw)
 	//l, err := ldap.Dial("tcp", fmt.Sprintf("%s:%d", h.ldapServer, h.ldapPort))
@@ -279,7 +406,7 @@ func (b *LdapBackend) Search(boundDN string, searchReq ldap.SearchRequest, conn 
 			Referrals:  []string{},
 			Controls:   []ldap.Control{},
 			ResultCode: ldap.LDAPResultSuccess,
-		}, nil*/
+		}, nil*
 	// return ldap.ServerSearchResult{sr.Entries, []string{}, []ldap.Control{}, ldap.LDAPResultSuccess}, nil
 }
 
@@ -290,3 +417,4 @@ func (b *LdapBackend) Close(boundDn string, conn net.Conn) error {
 
 	return nil
 }
+*/
