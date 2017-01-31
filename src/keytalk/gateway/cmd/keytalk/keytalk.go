@@ -1,9 +1,7 @@
 package main
 
 import (
-	_ "keytalk/gateway/backends/forfarmers"
-	_ "keytalk/gateway/backends/headfirst"
-	_ "keytalk/gateway/backends/ldap"
+	// _ "add backends here"
 
 	"keytalk/gateway/proxy"
 
