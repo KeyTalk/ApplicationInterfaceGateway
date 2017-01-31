@@ -54,7 +54,7 @@ type CertificateManager struct {
 }
 
 func (cm *CertificateManager) GenerateCRL() ([]byte, error) {
-	now := time.Now()
+	now := time.Now().AddDate(0, -1, 0)
 	expiry := now.AddDate(0, 1, 0)
 	derBytes, err := cm.CaSigningCert.Certificate.CreateCRL(rand.Reader, cm.CaSigningCert.PrivateKey, []pkix.RevokedCertificate{}, now, expiry)
 	if err != nil {
